@@ -80,6 +80,25 @@ if (render_nginx_site ' /not-a-script' /assets/index-new123.css 1 >/dev/null 2>&
   exit 1
 fi
 
+assert_eq "$(github_repo_slug "https://github.com/Emile098/Pockethernet-Web.git")" \
+  "Emile098/Pockethernet-Web" "github slug"
+valid_github_token "github_pat_abc123"
+if valid_github_token "bad token"; then
+  echo "token with a space should be rejected" >&2
+  exit 1
+fi
+checkout="$(local_source_dir)"
+[[ -f "$checkout/package.json" ]]
+POCKETWEB_SRC="$checkout"
+assert_eq "$(local_source_dir)" "$checkout" "explicit checkout"
+# shellcheck disable=SC2034 # Read by local_source_dir.
+POCKETWEB_SRC="/tmp"
+if local_source_dir >/dev/null; then
+  echo "unrelated directory should not be a Pocketweb checkout" >&2
+  exit 1
+fi
+unset POCKETWEB_SRC
+
 if command -v nginx >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
   work="$(mktemp -d)"
   openssl req -x509 -nodes -newkey rsa:2048 -keyout "$work/pocketweb.key" -out "$work/pocketweb.crt" \

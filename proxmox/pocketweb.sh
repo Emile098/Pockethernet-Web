@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Create a Pocketweb LXC on a Proxmox VE host.
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+# This repository is private. Clone it onto the Proxmox host with your own
+# SSH key or GitHub login, then run:
+#
+#   bash proxmox/pocketweb.sh
+#
+# The script copies that checkout into the container. An anonymous curl of the
+# script cannot download a private repo.
 #
 # The container serves the built site. Web Bluetooth still runs in the browser
 # that opens the page, so the container does not need a Bluetooth adapter.
@@ -10,7 +16,6 @@
 set -euo pipefail
 
 POCKETWEB_REPO_DEFAULT="https://github.com/Emile098/Pockethernet-Web.git"
-POCKETWEB_SCRIPT_URL="https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh"
 POCKETWEB_IP="${POCKETWEB_IP:-}"
 POCKETWEB_GW="${POCKETWEB_GW:-}"
 
@@ -37,14 +42,14 @@ print_usage() {
   cat <<EOF
 Usage: pocketweb.sh
 
-Run this on a Proxmox VE host. It creates an unprivileged Debian LXC, builds
-Pocketweb, and serves it with nginx.
+Run this on a Proxmox VE host from a checkout of this private repo. It creates
+an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx.
 
-  bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
+  bash proxmox/pocketweb.sh
 
-Update an existing container:
+Update an existing container from that same checkout:
 
-  CTID=150 POCKETWEB_UPDATE=1 bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
+  CTID=150 POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
 
 Environment:
   CTID                       Container ID. Default: first free ID from 100.
@@ -63,9 +68,12 @@ Environment:
   POCKETWEB_IP6              Optional IPv6 value: auto, dhcp, or a CIDR.
   POCKETWEB_VLAN             Optional VLAN tag on the container NIC.
   POCKETWEB_HTTPS            1 (default) or 0. Web Bluetooth needs HTTPS off localhost.
-  POCKETWEB_SOURCE           git (default for the one-liner) or local.
+  POCKETWEB_SOURCE           local when this script is inside a checkout, otherwise git.
+  POCKETWEB_SRC              Checkout to install when the script is not inside it.
   POCKETWEB_REF              Git branch, tag, or commit. Default: main.
   POCKETWEB_REPO             HTTPS GitHub repository. Default: this project.
+  POCKETWEB_TOKEN            GitHub token for a private git download. GH_TOKEN and
+                             GITHUB_TOKEN are also read. Not stored in the container.
 EOF
 }
 
@@ -234,7 +242,7 @@ EOF
 }
 
 install_pocketweb() {
-  local js css addr san scheme ip url attempt
+  local js css addr san scheme ip url attempt token
   : "${POCKETWEB_REPO:?}"
   : "${POCKETWEB_REF:?}"
   : "${POCKETWEB_SOURCE:?}"
@@ -271,9 +279,23 @@ install_pocketweb() {
     [[ -n "${POCKETWEB_ARCHIVE:-}" && -f "$POCKETWEB_ARCHIVE" ]] || die "Local source archive is missing"
     tar -xzf "$POCKETWEB_ARCHIVE" -C /opt/pocketweb/src
   elif [[ "$POCKETWEB_SOURCE" == "git" ]]; then
+    token=""
+    if [[ -f /root/pocketweb-token ]]; then
+      token="$(tr -d '[:space:]' </root/pocketweb-token)"
+      rm -f /root/pocketweb-token
+    fi
     git -C /opt/pocketweb/src init -q
     git -C /opt/pocketweb/src remote add origin "$POCKETWEB_REPO"
-    git -C /opt/pocketweb/src fetch --depth 1 origin "$POCKETWEB_REF"
+    if [[ -n "$token" ]]; then
+      [[ "$token" =~ ^[A-Za-z0-9_]+$ ]] || die "GitHub token contains unsupported characters"
+      git -C /opt/pocketweb/src -c "http.extraheader=AUTHORIZATION: bearer ${token}" \
+        fetch --depth 1 origin "$POCKETWEB_REF" \
+        || die "Could not fetch ${POCKETWEB_REF}. The GitHub token could not read ${POCKETWEB_REPO}."
+      unset token
+    else
+      git -C /opt/pocketweb/src fetch --depth 1 origin "$POCKETWEB_REF" \
+        || die "Could not fetch ${POCKETWEB_REF} from ${POCKETWEB_REPO}. Clone this private repo on the Proxmox host and run bash proxmox/pocketweb.sh from that checkout."
+    fi
     git -C /opt/pocketweb/src checkout -q --detach FETCH_HEAD
   else
     die "POCKETWEB_SOURCE must be git or local"
@@ -444,11 +466,55 @@ prompt_value() {
 
 local_source_dir() {
   local src="${BASH_SOURCE[0]:-}" root
-  [[ -n "$src" && -f "$src" ]] || return 1
-  root="$(cd "$(dirname "$src")/.." && pwd)"
+  if [[ -n "${POCKETWEB_SRC:-}" ]]; then
+    root="$(cd "$POCKETWEB_SRC" && pwd)" || return 1
+  else
+    [[ -n "$src" && -f "$src" ]] || return 1
+    root="$(cd "$(dirname "$src")/.." && pwd)"
+  fi
   [[ -f "$root/package.json" ]] || return 1
   grep -q '"name": "pocketweb-for-pockethernet"' "$root/package.json" || return 1
   printf '%s\n' "$root"
+}
+
+github_repo_slug() {
+  local repo="${1%.git}"
+  repo="${repo#https://github.com/}"
+  [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+  printf '%s\n' "$repo"
+}
+
+valid_github_token() {
+  [[ "$1" =~ ^[A-Za-z0-9_]+$ ]]
+}
+
+pocketweb_token() {
+  printf '%s\n' "${POCKETWEB_TOKEN:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
+}
+
+ensure_git_source_access() {
+  local slug token code header_file=""
+  local -a curl_args=()
+  slug="$(github_repo_slug "$POCKETWEB_REPO")" || die "POCKETWEB_REPO must be an https://github.com/owner/name URL"
+  token="$(pocketweb_token)"
+  if [[ -n "$token" ]]; then
+    valid_github_token "$token" || die "POCKETWEB_TOKEN must contain only letters, numbers, and underscores"
+    header_file="$(mktemp)"
+    chmod 600 "$header_file"
+    printf 'Authorization: Bearer %s\n' "$token" >"$header_file"
+    curl_args+=(-H "@${header_file}")
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    [[ -z "$header_file" ]] || rm -f "$header_file"
+    die "curl is required to clone from GitHub. Install curl, or run bash proxmox/pocketweb.sh from a checkout of this private repo."
+  fi
+  code="$(
+    curl -sS --max-time 20 "${curl_args[@]}" -o /dev/null -w '%{http_code}' \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/${slug}" || true
+  )"
+  [[ -z "$header_file" ]] || rm -f "$header_file"
+  [[ "$code" == "200" ]] || die "GitHub did not allow a download of ${slug} (HTTP ${code:-n/a}). This repository is private, so an anonymous download cannot clone it. Clone the repo onto this Proxmox host with your SSH key or GitHub login, then run: bash proxmox/pocketweb.sh"
 }
 
 apply_local_ref() {
@@ -471,7 +537,7 @@ write_guest_installer() {
     printf '%s\n' '#!/usr/bin/env bash'
     printf '%s\n' 'set -euo pipefail'
     # shellcheck disable=SC2016 # The trap is literal text for the guest script.
-    printf '%s\n' 'trap '"'"'printf "error: container install failed near line %s\n" "$LINENO" >&2'"'"' ERR'
+    printf '%s\n' 'trap '"'"'rm -f /root/pocketweb-token; printf "error: container install failed near line %s\n" "$LINENO" >&2'"'"' ERR'
     declare -f die info warn node_is_usable install_node render_nginx_site install_pocketweb
     printf '%s\n' 'install_pocketweb'
   } >"$dest"
@@ -585,6 +651,17 @@ push_and_install() {
   fi
   rm -f "$guest"
   [[ -z "$archive" ]] || rm -f "$archive"
+  if [[ "$POCKETWEB_SOURCE" == "git" ]]; then
+    local token token_file
+    token="$(pocketweb_token)"
+    if [[ -n "$token" ]]; then
+      token_file="$(mktemp)"
+      chmod 600 "$token_file"
+      printf '%s' "$token" >"$token_file"
+      pct push "$id" "$token_file" /root/pocketweb-token --perms 600
+      rm -f "$token_file"
+    fi
+  fi
   info "Installing Pocketweb inside container ${id}"
   pct exec "$id" -- env \
     POCKETWEB_REPO="$POCKETWEB_REPO" \
@@ -594,7 +671,7 @@ push_and_install() {
     POCKETWEB_HOSTNAME="$POCKETWEB_HOSTNAME" \
     POCKETWEB_ARCHIVE="${archive:+/tmp/pocketweb-src.tgz}" \
     bash /root/pocketweb-install.sh
-  pct exec "$id" -- rm -f /root/pocketweb-install.sh
+  pct exec "$id" -- rm -f /root/pocketweb-install.sh /root/pocketweb-token
 }
 
 print_result() {
@@ -609,7 +686,8 @@ Pockethernet. Bluetooth stays on that computer. Accept the container
 certificate once so the browser treats the page as a secure context.
 
 Console: pct enter ${id}
-Update:  CTID=${id} POCKETWEB_UPDATE=1 bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
+Update from the Pocketweb checkout on this host:
+  CTID=${id} POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
 EOF
   if [[ "$POCKETWEB_HTTPS" == "0" ]]; then
     warn "HTTPS is off. Web Bluetooth works from localhost only, not from this container address."
@@ -650,7 +728,7 @@ load_create_settings() {
   fi
   prompt_value POCKETWEB_HTTPS "HTTPS (1 or 0)" "1"
   if [[ -z "${POCKETWEB_SOURCE:-}" ]]; then
-    if local_source_dir >/dev/null 2>&1; then
+    if [[ -n "${POCKETWEB_SRC:-}" ]] || local_source_dir >/dev/null 2>&1; then
       POCKETWEB_SOURCE="local"
     else
       POCKETWEB_SOURCE="git"
@@ -766,6 +844,9 @@ main() {
 
   if [[ "${POCKETWEB_UPDATE:-}" == "1" ]]; then
     load_update_settings
+    if [[ "$POCKETWEB_SOURCE" == "git" ]]; then
+      ensure_git_source_access
+    fi
     cat <<EOF
 Update Pocketweb container ${CTID}
   Source: ${POCKETWEB_SOURCE} ${POCKETWEB_REF}
@@ -779,6 +860,9 @@ EOF
 
   load_create_settings
   validate_settings
+  if [[ "$POCKETWEB_SOURCE" == "git" ]]; then
+    ensure_git_source_access
+  fi
   cat <<EOF
 Create Pocketweb container ${CTID}
   Hostname: ${POCKETWEB_HOSTNAME}

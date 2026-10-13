@@ -74,29 +74,32 @@ The Worker uses SPA fallback routing so client-side routes resolve to `index.htm
 
 ## Proxmox VE
 
-Run this on the Proxmox VE host shell. It creates an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx. Web Bluetooth still runs in the browser that opens the page, so the container does not need a Bluetooth adapter.
+This repository is private, so clone it onto the Proxmox VE host with your SSH key or GitHub login, then run the installer from that checkout. The script copies those files into an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx. The container does not clone GitHub.
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+git clone git@github.com:Emile098/Pockethernet-Web.git
+cd Pockethernet-Web
+bash proxmox/pocketweb.sh
 ```
 
-The container serves HTTPS with a certificate it generates locally. Accept that certificate in Chrome or Edge once. Web Bluetooth requires HTTPS when the page is not opened from localhost.
+Web Bluetooth still runs in the browser that opens the page, so the container does not need a Bluetooth adapter. The container serves HTTPS with a certificate it generates locally. Accept that certificate in Chrome or Edge once.
 
-Unattended example:
+Unattended example from the same checkout:
 
 ```bash
 CTID=150 POCKETWEB_YES=1 POCKETWEB_IP=192.168.1.50/24 POCKETWEB_GW=192.168.1.1 \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+  bash proxmox/pocketweb.sh
 ```
 
-Update an existing container from the same host shell:
+Update an existing container from that checkout:
 
 ```bash
-CTID=150 POCKETWEB_UPDATE=1 \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+CTID=150 POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
 ```
 
-Defaults are 2 CPU cores, 2048 MB RAM, an 8 GB disk, DHCP on `vmbr0`, and the newest Debian 13 standard template available on the host (Debian 12 if 13 is not in the template list). Running `proxmox/pocketweb.sh` from a checkout installs that checkout. The one-liner installs the `main` branch. Set `POCKETWEB_HTTPS=0` only for a plain HTTP page; device connection from another computer needs HTTPS.
+Defaults are 2 CPU cores, 2048 MB RAM, an 8 GB disk, DHCP on `vmbr0`, and the newest Debian 13 standard template available on the host (Debian 12 if 13 is not in the template list). Set `POCKETWEB_HTTPS=0` only for a plain HTTP page; device connection from another computer needs HTTPS.
+
+To download `main` with a GitHub token instead of copying a checkout, set `POCKETWEB_SOURCE=git` and `POCKETWEB_TOKEN` (or `GH_TOKEN` / `GITHUB_TOKEN`). The token is used for that download and is not written into the container. An anonymous `curl` of the script cannot read this private repo.
 
 ## Development checks
 
