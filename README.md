@@ -72,6 +72,32 @@ npm run deploy
 
 The Worker uses SPA fallback routing so client-side routes resolve to `index.html`.
 
+## Proxmox VE
+
+Run this on the Proxmox VE host shell. It creates an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx. Web Bluetooth still runs in the browser that opens the page, so the container does not need a Bluetooth adapter.
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+```
+
+The container serves HTTPS with a certificate it generates locally. Accept that certificate in Chrome or Edge once. Web Bluetooth requires HTTPS when the page is not opened from localhost.
+
+Unattended example:
+
+```bash
+CTID=150 POCKETWEB_YES=1 POCKETWEB_IP=192.168.1.50/24 POCKETWEB_GW=192.168.1.1 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+```
+
+Update an existing container from the same host shell:
+
+```bash
+CTID=150 POCKETWEB_UPDATE=1 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
+```
+
+Defaults are 2 CPU cores, 2048 MB RAM, an 8 GB disk, DHCP on `vmbr0`, and the newest Debian 13 standard template available on the host (Debian 12 if 13 is not in the template list). Running `proxmox/pocketweb.sh` from a checkout installs that checkout. The one-liner installs the `main` branch. Set `POCKETWEB_HTTPS=0` only for a plain HTTP page; device connection from another computer needs HTTPS.
+
 ## Development checks
 
 ```powershell
@@ -97,6 +123,7 @@ npm run build
 | `src/pockethernetProtocol.ts`      | Compatibility barrel for the protocol modules.                                                                |
 | `src/styles.css`                   | Base application and test-panel styling.                                                                      |
 | `src/pockethernetProtocol.test.ts` | Synthetic protocol regression tests.                                                                          |
+| `proxmox/pocketweb.sh`             | Proxmox VE host script that creates an LXC and serves the built application.                                 |
 
 Feature modules may import from `app`, `device`, `protocol`, and `shared`. Shared modules must remain feature-independent so they can be reused without creating circular dependencies. Components, stories, and styles that belong to one feature should stay colocated in that feature folder. Use the `@/` source alias for cross-folder imports and relative paths for files in the same folder.
 
