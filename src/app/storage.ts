@@ -1,5 +1,6 @@
 import type {
   BlinkerSettings,
+  BrandSettings,
   ReportDetails,
   ReportPreferences,
   SavedReport,
@@ -42,6 +43,40 @@ export const DEFAULT_REPORT_DETAILS: ReportDetails = {
   portId: '',
 };
 export const DEFAULT_REPORT_PREFERENCES: ReportPreferences = { logoDataUrl: '', logoName: '' };
+export const DEFAULT_BRAND_NAME = 'Pocketweb for Pockethernet';
+export const DEFAULT_BRAND_SETTINGS: BrandSettings = {
+  name: DEFAULT_BRAND_NAME,
+  logoDataUrl: '',
+  logoName: '',
+  iconDataUrl: '',
+  iconName: '',
+};
+
+export function brandLabel(brand: BrandSettings): string {
+  const name = brand.name.trim();
+  return name || DEFAULT_BRAND_NAME;
+}
+
+export function loadBrandSettings(): BrandSettings {
+  const saved = storedRecord('pockethernet.brand');
+  return {
+    name: typeof saved.name === 'string' ? saved.name : DEFAULT_BRAND_NAME,
+    logoDataUrl: typeof saved.logoDataUrl === 'string' ? saved.logoDataUrl : '',
+    logoName: typeof saved.logoName === 'string' ? saved.logoName : '',
+    iconDataUrl: typeof saved.iconDataUrl === 'string' ? saved.iconDataUrl : '',
+    iconName: typeof saved.iconName === 'string' ? saved.iconName : '',
+  };
+}
+
+export function applyDocumentBrand(brand: BrandSettings): void {
+  const name = brandLabel(brand);
+  document.title = name;
+  const iconHref = brand.iconDataUrl || '/logo-192.png';
+  for (const rel of ['icon', 'apple-touch-icon']) {
+    const link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+    if (link) link.href = iconHref;
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
-import logo from '@/assets/logo.png';
+import { loadBrandSettings } from '@/app/storage';
+import { BrandLockup } from './BrandSettings';
 
 type DeviceFamily = 'ios' | 'android' | 'desktop';
 
@@ -73,10 +74,11 @@ export function WebBluetoothGate({ children }: { children: ReactNode }): ReactEl
         ? 'Open this site in the latest version of Google Chrome for Android, which supports Web Bluetooth.'
         : 'Open this site in the latest version of Google Chrome or Microsoft Edge on a Bluetooth-capable computer.';
 
+  const brand = loadBrandSettings();
   return (
     <main className="support-page">
       <section className="support-panel" aria-labelledby="support-title">
-        <img className="support-wordmark" src={logo} alt="Pocketweb for Pockethernet" />
+        <BrandLockup brand={brand} />
         <div className="support-status" aria-hidden="true">
           <span />
         </div>
