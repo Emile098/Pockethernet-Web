@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
 # Create a Pocketweb LXC on a Proxmox VE host.
 #
-# This repository is private. Clone it onto the Proxmox host with your own
-# SSH key or GitHub login, then run:
-#
-#   bash proxmox/pocketweb.sh
-#
-# The script copies that checkout into the container. An anonymous curl of the
-# script cannot download a private repo.
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/cursor/one-line-proxmox-container-4e30/proxmox/pocketweb.sh)"
 #
 # The container serves the built site. Web Bluetooth still runs in the browser
 # that opens the page, so the container does not need a Bluetooth adapter.
@@ -16,6 +10,7 @@
 set -euo pipefail
 
 POCKETWEB_REPO_DEFAULT="https://github.com/Emile098/Pockethernet-Web.git"
+POCKETWEB_SCRIPT_URL="https://raw.githubusercontent.com/Emile098/Pockethernet-Web/cursor/one-line-proxmox-container-4e30/proxmox/pocketweb.sh"
 POCKETWEB_IP="${POCKETWEB_IP:-}"
 POCKETWEB_GW="${POCKETWEB_GW:-}"
 
@@ -42,14 +37,14 @@ print_usage() {
   cat <<EOF
 Usage: pocketweb.sh
 
-Run this on a Proxmox VE host from a checkout of this private repo. It creates
-an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx.
+Run this on a Proxmox VE host shell. It creates an unprivileged Debian LXC,
+builds Pocketweb, and serves it with nginx.
 
-  bash proxmox/pocketweb.sh
+  bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
 
-Update an existing container from that same checkout:
+Update an existing container:
 
-  CTID=150 POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
+  CTID=150 POCKETWEB_UPDATE=1 bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
 
 Environment:
   CTID                       Container ID. Default: first free ID from 100.
@@ -686,8 +681,7 @@ Pockethernet. Bluetooth stays on that computer. Accept the container
 certificate once so the browser treats the page as a secure context.
 
 Console: pct enter ${id}
-Update from the Pocketweb checkout on this host:
-  CTID=${id} POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
+Update:  CTID=${id} POCKETWEB_UPDATE=1 bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
 EOF
   if [[ "$POCKETWEB_HTTPS" == "0" ]]; then
     warn "HTTPS is off. Web Bluetooth works from localhost only, not from this container address."
