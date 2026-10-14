@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import logo from '@/assets/logo.png';
 import {
   blinkerCommand,
   parseFirmwareVersionResponse,
@@ -18,7 +17,9 @@ import {
 import { errorMessage } from '@/app/format';
 import { runMeasurements } from '@/app/runMeasurements';
 import {
+  applyDocumentBrand,
   loadBlinkerSettings,
+  loadBrandSettings,
   loadReportDetails,
   loadReportPreferences,
   loadReports,
@@ -36,6 +37,7 @@ import {
   type Ipv4UiSettings,
   type Ipv6DisplayResult,
   type PingDisplayResult,
+  type BrandSettings,
   type ReportDetails,
   type ReportPreferences,
   type ReportResults,
@@ -53,13 +55,8 @@ import {
 import { TestPage } from '@/features/measurements/TestPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
 import { ToolsPage } from '@/features/tools/ToolsPage';
-import {
-  ActionDock,
-  AppFooter,
-  ConnectionButton,
-  GitHubLink,
-  Toast,
-} from '@/shared/layout/AppControls';
+import { ActionDock, AppFooter, ConnectionButton, Toast } from '@/shared/layout/AppControls';
+import { BrandLockup, BrandSettingsDialog, SettingsButton } from '@/shared/layout/BrandSettings';
 import { MainNav } from '@/shared/layout/Layout';
 import { usePockethernet } from '@/device/usePockethernet';
 
@@ -118,6 +115,8 @@ export default function App(): ReactElement {
   const [running, setRunning] = useState(false);
   const [activeTest, setActiveTest] = useState<TestId | null>(null);
   const [notice, setNotice] = useState('');
+  const [brand, setBrand] = useState<BrandSettings>(loadBrandSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [firmwareCheck, setFirmwareCheck] = useState<FirmwareCheck | null>(null);
   const [firmwareChecking, setFirmwareChecking] = useState(false);
 
@@ -159,6 +158,14 @@ export default function App(): ReactElement {
   useEffect(() => {
     localStorage.setItem('pockethernet.reports', JSON.stringify(reports));
   }, [reports]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('pockethernet.brand', JSON.stringify(brand));
+    } catch {
+      setNotice('Branding is too large to save in this browser.');
+    }
+    applyDocumentBrand(brand);
+  }, [brand]);
 
   const currentResults: ReportResults = {
     wiremap,
@@ -350,9 +357,17 @@ export default function App(): ReactElement {
   return (
     <div className="original-app">
       <header className="original-header">
-        <img className="wordmark" src={logo} alt="Pocketweb for Pockethernet" />
+        <BrandLockup brand={brand} />
         <div className="header-actions">
-          <GitHubLink />
+          <SettingsButton onClick={() => setSettingsOpen(true)} />
+          {settingsOpen && (
+            <BrandSettingsDialog
+              brand={brand}
+              onChange={setBrand}
+              onClose={() => setSettingsOpen(false)}
+              onNotice={setNotice}
+            />
+          )}
           <ConnectionButton
             status={ble.status}
             onClick={() => {

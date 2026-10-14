@@ -3,7 +3,7 @@
   align-items: center;
   gap: 10px;
 }
-.github-link {
+.header-icon-button {
   width: 48px;
   height: 48px;
   flex: 0 0 auto;
@@ -14,19 +14,97 @@
   color: #304056;
   background: #fff;
   box-shadow: 0 3px 10px #1721330c;
+  cursor: pointer;
 }
-.github-link svg {
+.header-icon-button svg {
   width: 23px;
   height: 23px;
 }
-.github-link:hover {
+.header-icon-button:hover {
   border-color: #8abce3;
   color: #0878ca;
   background: #f5faff;
 }
-.github-link:focus-visible {
+.header-icon-button:focus-visible {
   outline: 3px solid #7cc4ff;
   outline-offset: 2px;
+}
+.settings-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  padding: 24px 16px;
+  display: grid;
+  place-items: center;
+  background: #17213380;
+}
+.settings-dialog {
+  width: min(100%, 520px);
+  max-height: min(720px, calc(100vh - 48px));
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 60px #17213340;
+}
+.settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-dialog-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.settings-dialog .text-field {
+  display: grid;
+  gap: 6px;
+}
+.settings-dialog .text-field input {
+  width: 100%;
+}
+.settings-logo-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+.settings-logo-row img {
+  width: 88px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.settings-logo-row img.icon {
+  width: 48px;
+  height: 48px;
+}
+.settings-logo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.settings-logo-actions input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.settings-logo-actions small {
+  width: 100%;
+  color: #718096;
+  font-size: 0.75rem;
+}
+.settings-dialog-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 .app-footer {
   padding: 18px clamp(18px, 4vw, 34px);

@@ -71,6 +71,14 @@ export interface ReportPreferences {
   logoName: string;
 }
 
+export interface BrandSettings {
+  name: string;
+  logoDataUrl: string;
+  logoName: string;
+  iconDataUrl: string;
+  iconName: string;
+}
+
 export interface ReportResults {
   wiremap: WiremapResult | null;
   tdr: TdrResult | null;

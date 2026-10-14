@@ -23,7 +23,6 @@
     "jspdf": "^4.2.1",
     "react": "latest",
     "react-dom": "latest",
-    "react-icons": "^5.7.0",
     "vite": "latest"
   },
   "devDependencies": {
