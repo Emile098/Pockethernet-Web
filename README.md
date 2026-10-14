@@ -72,6 +72,35 @@ npm run deploy
 
 The Worker uses SPA fallback routing so client-side routes resolve to `index.html`.
 
+## Proxmox VE
+
+This repository is private, so clone it onto the Proxmox VE host with your SSH key or GitHub login, then run the installer from that checkout. The script copies those files into an unprivileged Debian LXC, builds Pocketweb, and serves it with nginx. The container does not clone GitHub.
+
+```bash
+git clone git@github.com:Emile098/Pockethernet-Web.git
+cd Pockethernet-Web
+bash proxmox/pocketweb.sh
+```
+
+Web Bluetooth still runs in the browser that opens the page, so the container does not need a Bluetooth adapter. The container serves HTTPS with a certificate it generates locally. Accept that certificate in Chrome or Edge once.
+
+Unattended example from the same checkout:
+
+```bash
+CTID=150 POCKETWEB_YES=1 POCKETWEB_IP=192.168.1.50/24 POCKETWEB_GW=192.168.1.1 \
+  bash proxmox/pocketweb.sh
+```
+
+Update an existing container from that checkout:
+
+```bash
+CTID=150 POCKETWEB_UPDATE=1 bash proxmox/pocketweb.sh
+```
+
+Defaults are 2 CPU cores, 2048 MB RAM, an 8 GB disk, DHCP on `vmbr0`, and the newest Debian 13 standard template available on the host (Debian 12 if 13 is not in the template list). Set `POCKETWEB_HTTPS=0` only for a plain HTTP page; device connection from another computer needs HTTPS.
+
+To download `main` with a GitHub token instead of copying a checkout, set `POCKETWEB_SOURCE=git` and `POCKETWEB_TOKEN` (or `GH_TOKEN` / `GITHUB_TOKEN`). The token is used for that download and is not written into the container. An anonymous `curl` of the script cannot read this private repo.
+
 ## Development checks
 
 ```powershell
@@ -97,6 +126,7 @@ npm run build
 | `src/pockethernetProtocol.ts`      | Compatibility barrel for the protocol modules.                                                                |
 | `src/styles.css`                   | Base application and test-panel styling.                                                                      |
 | `src/pockethernetProtocol.test.ts` | Synthetic protocol regression tests.                                                                          |
+| `proxmox/pocketweb.sh`             | Proxmox VE host script that creates an LXC and serves the built application.                                 |
 
 Feature modules may import from `app`, `device`, `protocol`, and `shared`. Shared modules must remain feature-independent so they can be reused without creating circular dependencies. Components, stories, and styles that belong to one feature should stay colocated in that feature folder. Use the `@/` source alias for cross-folder imports and relative paths for files in the same folder.
 
