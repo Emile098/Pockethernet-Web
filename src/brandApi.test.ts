@@ -69,7 +69,9 @@ const saved = await request(
   'secret',
 );
 assert.equal(saved.status, 200);
-assert.equal(await brandName(saved), 'Acme Cable');
+const savedBody: unknown = JSON.parse(await saved.text());
+assert.equal(parseBrandSettings(savedBody)?.name, 'Acme Cable');
+assert.equal(parseBrandSettings(savedBody)?.footer, '');
 
 const loaded = await request('GET', empty, 'secret');
 assert.equal(parseBrandSettings(JSON.parse(await loaded.text()) as unknown)?.logoDataUrl, png);
@@ -83,6 +85,31 @@ const rejected = await request(
 );
 assert.equal(rejected.status, 400);
 assert.equal(await brandName(await request('GET', empty, 'secret')), 'Acme Cable');
+
+const footerStore = memoryStore();
+const withFooter = await request(
+  'PUT',
+  footerStore,
+  'secret',
+  { name: 'Acme Cable', footer: 'Operated by Example Networks.' },
+  'secret',
+);
+assert.equal(withFooter.status, 200);
+assert.equal(
+  parseBrandSettings(JSON.parse(await withFooter.text()) as unknown)?.footer,
+  'Operated by Example Networks.',
+);
+const longFooter = await request(
+  'PUT',
+  footerStore,
+  'secret',
+  { name: 'Acme Cable', footer: 'y'.repeat(600) },
+  'secret',
+);
+assert.equal(
+  parseBrandSettings(JSON.parse(await longFooter.text()) as unknown)?.footer.length,
+  500,
+);
 
 const directory = await mkdtemp(join(tmpdir(), 'pocketweb-brand-'));
 const file = join(directory, 'brand.json');

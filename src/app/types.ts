@@ -77,6 +77,7 @@ export interface BrandSettings {
   logoName: string;
   iconDataUrl: string;
   iconName: string;
+  footer: string;
 }
 
 export interface ReportResults {

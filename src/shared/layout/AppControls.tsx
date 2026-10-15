@@ -1,12 +1,17 @@
 import type { ReactElement } from 'react';
 import type { PockethernetState } from '@/device/usePockethernet';
+import { defaultFooterText } from '@/app/storage';
 import { AppIcon } from './Layout';
 import { Button, StatusIndicator } from '@/shared/ui/UiPrimitives';
 
 type ConnectionStatus = PockethernetState['status'];
 
-export function AppFooter(): ReactElement {
+export function AppFooter({ footer }: { footer: string }): ReactElement {
   const year = new Date().getFullYear();
+  const custom = footer.trim();
+  if (custom && custom !== defaultFooterText(year)) {
+    return <footer className="app-footer">{footer}</footer>;
+  }
   return (
     <footer className="app-footer">
       <span>

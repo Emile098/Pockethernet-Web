@@ -1,7 +1,12 @@
 import { useEffect, useState, type ChangeEvent, type ReactElement } from 'react';
 import logo from '@/assets/logo.png';
 import { unlockBrandSettings } from '@/app/brandClient';
-import { DEFAULT_BRAND_NAME, DEFAULT_BRAND_SETTINGS, brandLabel } from '@/app/storage';
+import {
+  DEFAULT_BRAND_NAME,
+  DEFAULT_BRAND_SETTINGS,
+  brandLabel,
+  defaultFooterText,
+} from '@/app/storage';
 import type { BrandSettings } from '@/app/types';
 import { Button, TextField } from '@/shared/ui/UiPrimitives';
 
@@ -243,7 +248,7 @@ function BrandEditor({
   return (
     <>
       <p className="settings-note">
-        Saving replaces the name and logos on this server for every visitor.
+        Saving replaces the name, logos, and footer on this server for every visitor.
       </p>
       <TextField
         label="Brand name"
@@ -251,6 +256,15 @@ function BrandEditor({
         maxLength={80}
         onChange={(event) => onDraft({ ...draft, name: event.target.value })}
       />
+      <label className="text-field">
+        Footer text
+        <textarea
+          rows={4}
+          maxLength={500}
+          value={draft.footer || defaultFooterText()}
+          onChange={(event) => onDraft({ ...draft, footer: event.target.value })}
+        />
+      </label>
       <LogoChoice
         label="Wordmark"
         hint={draft.logoName || 'Pocketweb wordmark'}
