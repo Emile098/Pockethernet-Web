@@ -63,6 +63,7 @@ Environment:
   POCKETWEB_IP6              Optional IPv6 value: auto, dhcp, or a CIDR.
   POCKETWEB_VLAN             Optional VLAN tag on the container NIC.
   POCKETWEB_HTTPS            1 (default) or 0. Web Bluetooth needs HTTPS off localhost.
+  POCKETWEB_BRAND_TOKEN      Admin password for Settings. Default: generated and printed.
   POCKETWEB_SOURCE           local when this script is inside a checkout, otherwise git.
   POCKETWEB_SRC              Checkout to install when the script is not inside it.
   POCKETWEB_REF              Git branch, tag, or commit. Default: main.
@@ -108,6 +109,51 @@ install_node() {
   info "Installed $(node -v)"
 }
 
+install_brand_service() {
+  local token node_bin
+  if [[ -n "${POCKETWEB_BRAND_TOKEN:-}" ]]; then
+    [[ "$POCKETWEB_BRAND_TOKEN" =~ ^[A-Za-z0-9]{8,80}$ ]] \
+      || die "POCKETWEB_BRAND_TOKEN must be 8 to 80 letters or numbers"
+    token="$POCKETWEB_BRAND_TOKEN"
+  elif [[ -s /etc/pocketweb/brand.token ]]; then
+    token="$(tr -d '[:space:]' </etc/pocketweb/brand.token)"
+  else
+    token="$(openssl rand -hex 18)"
+  fi
+  [[ "$token" =~ ^[A-Za-z0-9]{8,80}$ ]] || die "Stored branding password is unusable"
+  install -d -m 0750 /etc/pocketweb /var/lib/pocketweb
+  printf '%s\n' "$token" >/etc/pocketweb/brand.token
+  chmod 600 /etc/pocketweb/brand.token
+  cat >/etc/pocketweb/brand.env <<EOF
+POCKETWEB_BRAND_TOKEN=${token}
+POCKETWEB_BRAND_FILE=/var/lib/pocketweb/brand.json
+POCKETWEB_BRAND_PORT=8787
+EOF
+  chmod 600 /etc/pocketweb/brand.env
+  node_bin="$(command -v node)"
+  [[ -n "$node_bin" ]] || die "node is not installed"
+  cat >/etc/systemd/system/pocketweb-brand.service <<EOF
+[Unit]
+Description=Pocketweb branding store
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/pocketweb/brand.env
+ExecStart=${node_bin} --experimental-strip-types /opt/pocketweb/src/brand-server.ts
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload || true
+  systemctl enable pocketweb-brand.service || true
+  if ! systemctl restart pocketweb-brand.service; then
+    service pocketweb-brand restart
+  fi
+}
+
 render_nginx_site() {
   local js="$1" css="$2" https="$3" prelude listen
   [[ "$js" =~ ^/assets/index-[A-Za-z0-9_-]+\.js$ ]] || die "Unexpected script path: ${js}"
@@ -150,6 +196,17 @@ ${listen}
     server_tokens off;
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
+
+    location = /api/brand {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host \$host;
+        proxy_set_header Authorization \$http_authorization;
+        client_max_body_size 5m;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 20s;
+        add_header Cache-Control "no-store" always;
+        limit_except GET PUT { deny all; }
+    }
 
     location = /api/latest-version {
         proxy_pass https://ota.pockethernet.com/latest_version;
@@ -339,6 +396,9 @@ EOF
     chmod 644 /etc/nginx/ssl/pocketweb.crt
   fi
 
+  info "Starting the branding store"
+  install_brand_service
+
   info "Configuring nginx"
   render_nginx_site "$js" "$css" "$POCKETWEB_HTTPS" >/etc/nginx/sites-available/pocketweb
   rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf
@@ -356,6 +416,9 @@ EOF
   if ! curl -fsS -k --max-time 20 "${scheme}://127.0.0.1/api/latest-version" >/dev/null; then
     warn "Firmware version lookup did not respond. The page will still load."
   fi
+  curl -fsS -k --retry 5 --retry-connrefused --retry-delay 1 "${scheme}://127.0.0.1/api/brand" \
+    | grep -q '"name"' \
+    || die "Branding store did not respond"
 
   ip="$(hostname -I | awk '{ print $1 }')"
   [[ -n "$ip" ]] || die "Container has no IP address"
@@ -533,7 +596,7 @@ write_guest_installer() {
     printf '%s\n' 'set -euo pipefail'
     # shellcheck disable=SC2016 # The trap is literal text for the guest script.
     printf '%s\n' 'trap '"'"'rm -f /root/pocketweb-token; printf "error: container install failed near line %s\n" "$LINENO" >&2'"'"' ERR'
-    declare -f die info warn node_is_usable install_node render_nginx_site install_pocketweb
+    declare -f die info warn node_is_usable install_node render_nginx_site install_brand_service install_pocketweb
     printf '%s\n' 'install_pocketweb'
   } >"$dest"
   chmod 755 "$dest"
@@ -574,6 +637,10 @@ validate_settings() {
   [[ "$POCKETWEB_BRIDGE" =~ ^[A-Za-z0-9._:-]+$ ]] || die "Bridge name contains unsupported characters"
   [[ -d "/sys/class/net/${POCKETWEB_BRIDGE}" ]] || die "Bridge ${POCKETWEB_BRIDGE} was not found"
   [[ "$POCKETWEB_HTTPS" == "0" || "$POCKETWEB_HTTPS" == "1" ]] || die "POCKETWEB_HTTPS must be 0 or 1"
+  if [[ -n "${POCKETWEB_BRAND_TOKEN:-}" ]]; then
+    [[ "$POCKETWEB_BRAND_TOKEN" =~ ^[A-Za-z0-9]{8,80}$ ]] \
+      || die "POCKETWEB_BRAND_TOKEN must be 8 to 80 letters or numbers"
+  fi
   [[ "$POCKETWEB_SOURCE" == "git" || "$POCKETWEB_SOURCE" == "local" ]] || die "POCKETWEB_SOURCE must be git or local"
   [[ "$POCKETWEB_IP" == "dhcp" || "$POCKETWEB_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$ ]] \
     || die "POCKETWEB_IP must be dhcp or an IPv4 CIDR, for example 192.168.1.50/24"
@@ -664,14 +731,16 @@ push_and_install() {
     POCKETWEB_SOURCE="$POCKETWEB_SOURCE" \
     POCKETWEB_HTTPS="$POCKETWEB_HTTPS" \
     POCKETWEB_HOSTNAME="$POCKETWEB_HOSTNAME" \
+    POCKETWEB_BRAND_TOKEN="${POCKETWEB_BRAND_TOKEN:-}" \
     POCKETWEB_ARCHIVE="${archive:+/tmp/pocketweb-src.tgz}" \
     bash /root/pocketweb-install.sh
   pct exec "$id" -- rm -f /root/pocketweb-install.sh /root/pocketweb-token
 }
 
 print_result() {
-  local id="$1" url
+  local id="$1" url token
   url="$(pct exec "$id" -- cat /opt/pocketweb/url)"
+  token="$(pct exec "$id" -- cat /etc/pocketweb/brand.token 2>/dev/null || true)"
   cat <<EOF
 
 Pocketweb container ${id} is ready: ${url}
@@ -683,6 +752,10 @@ certificate once so the browser treats the page as a secure context.
 Console: pct enter ${id}
 Update:  CTID=${id} POCKETWEB_UPDATE=1 bash -c "\$(curl -fsSL ${POCKETWEB_SCRIPT_URL})"
 EOF
+  if [[ -n "$token" ]]; then
+    printf 'Branding password: %s\n' "$token"
+    printf 'Enter that password in Settings to replace the name and logos for every visitor.\n'
+  fi
   if [[ "$POCKETWEB_HTTPS" == "0" ]]; then
     warn "HTTPS is off. Web Bluetooth works from localhost only, not from this container address."
   fi

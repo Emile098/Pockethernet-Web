@@ -1,4 +1,4 @@
-import { useEffect, type ChangeEvent, type ReactElement } from 'react';
+import { useEffect, useState, type ChangeEvent, type ReactElement } from 'react';
 import logo from '@/assets/logo.png';
 import { DEFAULT_BRAND_NAME, DEFAULT_BRAND_SETTINGS, brandLabel } from '@/app/storage';
 import type { BrandSettings } from '@/app/types';
@@ -74,15 +74,23 @@ export function SettingsButton({ onClick }: { onClick: () => void }): ReactEleme
 
 export function BrandSettingsDialog({
   brand,
-  onChange,
   onClose,
   onNotice,
+  onSave,
 }: {
   brand: BrandSettings;
-  onChange: (brand: BrandSettings) => void;
   onClose: () => void;
   onNotice: (message: string) => void;
+  onSave: (brand: BrandSettings, password: string) => Promise<void>;
 }): ReactElement {
+  const [draft, setDraft] = useState(brand);
+  const [password, setPassword] = useState(
+    () => sessionStorage.getItem('pockethernet.brandPassword') ?? '',
+  );
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setDraft(brand);
+  }, [brand]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose();
@@ -104,13 +112,30 @@ export function BrandSettingsDialog({
         kind === 'icon' ? 512 : 1200,
         kind === 'icon' ? 512 : 400,
       );
-      onChange(
+      setDraft((current) =>
         kind === 'icon'
-          ? { ...brand, iconDataUrl: dataUrl, iconName: file.name }
-          : { ...brand, logoDataUrl: dataUrl, logoName: file.name },
+          ? { ...current, iconDataUrl: dataUrl, iconName: file.name }
+          : { ...current, logoDataUrl: dataUrl, logoName: file.name },
       );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : 'Could not read this image.');
+    }
+  };
+
+  const save = async (): Promise<void> => {
+    if (!password) {
+      onNotice('Enter the admin password to save branding for this site.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(draft, password);
+      sessionStorage.setItem('pockethernet.brandPassword', password);
+      onClose();
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'Could not save branding.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -129,43 +154,58 @@ export function BrandSettingsDialog({
             Close
           </Button>
         </header>
+        <p className="settings-note">
+          Saving replaces the name and logos on this server for every visitor.
+        </p>
         <TextField
           label="Brand name"
-          value={brand.name}
+          value={draft.name}
           maxLength={80}
-          onChange={(event) => onChange({ ...brand, name: event.target.value })}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
         />
         <LogoChoice
           label="Wordmark"
-          hint={brand.logoName || 'Pocketweb wordmark'}
-          src={brand.logoDataUrl || logo}
+          hint={draft.logoName || 'Pocketweb wordmark'}
+          src={draft.logoDataUrl || logo}
           inputId="brand-wordmark"
           onFile={(event) => void chooseImage(event, 'logo')}
           onClear={
-            brand.logoDataUrl
-              ? () => onChange({ ...brand, logoDataUrl: '', logoName: '' })
+            draft.logoDataUrl
+              ? () => setDraft({ ...draft, logoDataUrl: '', logoName: '' })
               : undefined
           }
         />
         <LogoChoice
           label="App icon"
-          hint={brand.iconName || 'Pocketweb icon'}
-          src={brand.iconDataUrl || '/logo-192.png'}
+          hint={draft.iconName || 'Pocketweb icon'}
+          src={draft.iconDataUrl || '/logo-192.png'}
           icon
           inputId="brand-icon"
           onFile={(event) => void chooseImage(event, 'icon')}
           onClear={
-            brand.iconDataUrl
-              ? () => onChange({ ...brand, iconDataUrl: '', iconName: '' })
+            draft.iconDataUrl
+              ? () => setDraft({ ...draft, iconDataUrl: '', iconName: '' })
               : undefined
           }
         />
+        <TextField
+          label="Admin password"
+          type="password"
+          value={password}
+          autoComplete="current-password"
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        {import.meta.env.DEV && (
+          <p className="settings-note">
+            This local server accepts pocketweb unless POCKETWEB_BRAND_TOKEN is set.
+          </p>
+        )}
         <div className="settings-dialog-actions">
-          <Button variant="secondary" onClick={() => onChange(DEFAULT_BRAND_SETTINGS)}>
+          <Button variant="secondary" onClick={() => setDraft(DEFAULT_BRAND_SETTINGS)}>
             Reset branding
           </Button>
-          <Button variant="primary" onClick={onClose}>
-            Done
+          <Button variant="primary" disabled={saving} onClick={() => void save()}>
+            {saving ? 'Saving...' : 'Save branding'}
           </Button>
         </div>
       </section>

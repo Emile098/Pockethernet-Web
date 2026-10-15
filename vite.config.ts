@@ -4,10 +4,20 @@ import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { createBrandMiddleware } from './src/brandFile.ts';
 
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: 'pocketweb-brand',
+      configureServer(server) {
+        server.middlewares.use(createBrandMiddleware());
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(createBrandMiddleware());
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: null,

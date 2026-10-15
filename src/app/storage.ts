@@ -7,7 +7,7 @@ import type {
   TonerSettings,
   ToolSettings,
   WifiSettings,
-} from './types';
+} from './types.ts';
 
 export const DEFAULT_TOOL_SETTINGS: ToolSettings = {
   tia: '568B',
