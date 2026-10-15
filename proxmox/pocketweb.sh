@@ -110,25 +110,42 @@ install_node() {
   info "Installed $(node -v)"
 }
 
-bundle_brand_server() {
-  [[ -f /opt/pocketweb/src/brand-server.ts ]] || die "Source is missing brand-server.ts"
-  info "Bundling the branding store"
-  (
-    cd /opt/pocketweb/src
-    node --input-type=module <<'EOF'
-import * as esbuild from 'esbuild';
-const build = esbuild.build ?? esbuild.default.build;
-await build({
-  entryPoints: ['brand-server.ts'],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  outfile: '/opt/pocketweb/brand-server.mjs',
-  logLevel: 'warning',
-});
-EOF
-  )
-  [[ -s /opt/pocketweb/brand-server.mjs ]] || die "Could not bundle the branding store"
+install_brand_bundle() {
+  local bundled="/opt/pocketweb/src/proxmox/brand-server.mjs"
+  [[ -s "$bundled" ]] || die "Source is missing proxmox/brand-server.mjs"
+  cp "$bundled" /opt/pocketweb/brand-server.mjs
+  chmod 644 /opt/pocketweb/brand-server.mjs
+}
+
+smoke_brand_server() {
+  local log pid attempt body
+  log="$(mktemp)"
+  systemctl stop pocketweb-brand.service >/dev/null 2>&1 || true
+  set -a
+  # shellcheck disable=SC1091 # Written by install_brand_service just above.
+  source /etc/pocketweb/brand.env
+  set +a
+  "$(command -v node)" /opt/pocketweb/brand-server.mjs >"$log" 2>&1 &
+  pid=$!
+  body=""
+  for ((attempt = 1; attempt <= 25; attempt++)); do
+    body="$(curl -fsS --max-time 1 http://127.0.0.1:8787/api/brand 2>/dev/null || true)"
+    if [[ "$body" == *'"name"'* ]]; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$log"
+      return 0
+    fi
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.2
+  done
+  kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" 2>/dev/null || true
+  cat "$log" >&2 || true
+  rm -f "$log"
+  return 1
 }
 
 install_brand_service() {
@@ -159,6 +176,7 @@ EOF
 [Unit]
 Description=Pocketweb branding store
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -170,11 +188,10 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload || true
+  systemctl daemon-reload
   systemctl enable pocketweb-brand.service || true
-  if ! systemctl restart pocketweb-brand.service; then
-    service pocketweb-brand restart
-  fi
+  systemctl stop pocketweb-brand.service >/dev/null 2>&1 || true
+  systemctl reset-failed pocketweb-brand.service >/dev/null 2>&1 || true
 }
 
 render_nginx_site() {
@@ -317,7 +334,7 @@ EOF
 }
 
 install_pocketweb() {
-  local js css addr san scheme ip url attempt token
+  local js css addr san scheme ip url attempt token body page
   : "${POCKETWEB_REPO:?}"
   : "${POCKETWEB_REF:?}"
   : "${POCKETWEB_SOURCE:?}"
@@ -419,9 +436,16 @@ EOF
     chmod 644 /etc/nginx/ssl/pocketweb.crt
   fi
 
-  bundle_brand_server
+  install_brand_bundle
   info "Starting the branding store"
   install_brand_service
+  if ! smoke_brand_server; then
+    die "Branding store failed before it could listen"
+  fi
+  systemctl reset-failed pocketweb-brand.service >/dev/null 2>&1 || true
+  if ! systemctl restart pocketweb-brand.service; then
+    service pocketweb-brand restart
+  fi
 
   info "Configuring nginx"
   render_nginx_site "$js" "$css" "$POCKETWEB_HTTPS" >/etc/nginx/sites-available/pocketweb
@@ -440,11 +464,22 @@ EOF
   if ! curl -fsS -k --max-time 20 "${scheme}://127.0.0.1/api/latest-version" >/dev/null; then
     warn "Firmware version lookup did not respond. The page will still load."
   fi
-  if ! curl -fsS -k --retry 5 --retry-connrefused --retry-delay 1 "${scheme}://127.0.0.1/api/brand" \
-    | grep -q '"name"'; then
+  body=""
+  for ((attempt = 1; attempt <= 10; attempt++)); do
+    body="$(curl -fsS --max-time 2 http://127.0.0.1:8787/api/brand 2>/dev/null || true)"
+    [[ "$body" == *'"name"'* ]] && break
+    sleep 0.4
+  done
+  if [[ "$body" != *'"name"'* ]]; then
     journalctl -u pocketweb-brand -n 40 --no-pager >&2 || true
     systemctl status pocketweb-brand --no-pager >&2 || true
+    smoke_brand_server || true
     die "Branding store did not respond"
+  fi
+  page="$(curl -fsS -k --max-time 5 "${scheme}://127.0.0.1/api/brand" 2>/dev/null || true)"
+  if [[ "$page" != *'"name"'* ]]; then
+    journalctl -u pocketweb-brand -n 40 --no-pager >&2 || true
+    die "Branding store did not respond through nginx"
   fi
 
   ip="$(hostname -I | awk '{ print $1 }')"
@@ -623,7 +658,7 @@ write_guest_installer() {
     printf '%s\n' 'set -euo pipefail'
     # shellcheck disable=SC2016 # The trap is literal text for the guest script.
     printf '%s\n' 'trap '"'"'rm -f /root/pocketweb-token; printf "error: container install failed near line %s\n" "$LINENO" >&2'"'"' ERR'
-    declare -f die info warn node_is_usable install_node render_nginx_site bundle_brand_server install_brand_service install_pocketweb
+    declare -f die info warn node_is_usable install_node render_nginx_site install_brand_bundle smoke_brand_server install_brand_service install_pocketweb
     printf '%s\n' 'install_pocketweb'
   } >"$dest"
   chmod 755 "$dest"

@@ -85,10 +85,10 @@ assert_contains "$help" "Updates follow main unless this is set." "help updates 
 brand_unit="$(declare -f install_brand_service)"
 assert_contains "$brand_unit" "ExecStart=\${node_bin} /opt/pocketweb/brand-server.mjs" "brand service runs javascript"
 assert_not_contains "$brand_unit" "experimental-strip-types" "brand service does not run typescript"
-assert_contains "$(declare -f bundle_brand_server)" "outfile: '/opt/pocketweb/brand-server.mjs'" "brand bundle target"
+assert_contains "$brand_unit" "StartLimitIntervalSec=0" "brand service keeps restarting"
+assert_contains "$(declare -f install_brand_bundle)" "/opt/pocketweb/src/proxmox/brand-server.mjs" "brand bundle is copied from the checkout"
 assert_contains "$(declare -f install_pocketweb)" "journalctl -u pocketweb-brand" "brand failure shows the journal"
-guest_body="$(declare -f bundle_brand_server)"
-assert_contains "$guest_body" "import * as esbuild from 'esbuild';" "guest installer bundles the brand server"
+assert_contains "$(declare -f smoke_brand_server)" "127.0.0.1:8787/api/brand" "smoke test calls the brand port"
 one_line="$(bash -c "$(cat "$root/pocketweb.sh")" 2>&1 || true)"
 assert_contains "$one_line" "Run this on a Proxmox VE host shell" "one-liner entrypoint refuses a workstation"
 
@@ -153,5 +153,46 @@ EOF
   done
   rm -rf "$work"
 fi
+
+repo="$(cd "${root}/.." && pwd)"
+fresh="$(mktemp)"
+node --input-type=module <<EOF
+import * as esbuild from 'esbuild';
+const build = esbuild.build ?? esbuild.default.build;
+await build({
+  entryPoints: ['${repo}/src/brand-server.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: '${fresh}',
+  banner: { js: '// Generated from src/brand-server.ts. Do not edit.' },
+  logLevel: 'silent',
+});
+EOF
+if ! cmp -s "$fresh" "${root}/brand-server.mjs"; then
+  echo "proxmox/brand-server.mjs is stale. Rebuild it with the esbuild command in this test." >&2
+  diff -u "${root}/brand-server.mjs" "$fresh" | head -n 40 >&2 || true
+  rm -f "$fresh"
+  exit 1
+fi
+rm -f "$fresh"
+repair_decoded="$(mktemp)"
+node --input-type=module <<EOF
+import { readFileSync, writeFileSync } from 'node:fs';
+const text = readFileSync('${root}/repair-brand.sh', 'utf8');
+const match = text.match(/<<'B64'\\n([\\s\\S]*?)\\nB64/);
+if (!match) {
+  console.error('repair-brand.sh is missing the branding server payload');
+  process.exit(1);
+}
+writeFileSync('${repair_decoded}', Buffer.from(match[1].replace(/\\n/g, ''), 'base64'));
+EOF
+if ! cmp -s "$repair_decoded" "${root}/brand-server.mjs"; then
+  echo "repair-brand.sh payload does not match proxmox/brand-server.mjs" >&2
+  rm -f "$repair_decoded"
+  exit 1
+fi
+rm -f "$repair_decoded"
+bash -n "${root}/repair-brand.sh"
 
 printf 'nginx config and installer checks passed\n'

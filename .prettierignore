@@ -4,3 +4,4 @@ storybook-static/
 .wrangler/
 package-lock.json
 proxmox/*.sh
+proxmox/brand-server.mjs
