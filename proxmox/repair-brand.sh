@@ -7,7 +7,15 @@ info() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [[ -d /opt/pocketweb ]] || die "Pocketweb is not installed in this container"
-command -v node >/dev/null 2>&1 || die "node is not installed"
+# pct exec does not include /usr/local/bin, which is where the installer puts Node.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+if [[ -x /usr/local/bin/node ]]; then
+  node_bin=/usr/local/bin/node
+elif command -v node >/dev/null 2>&1; then
+  node_bin="$(command -v node)"
+else
+  die "node is not installed"
+fi
 command -v systemctl >/dev/null 2>&1 || die "systemd is not available"
 command -v openssl >/dev/null 2>&1 || die "openssl is not installed"
 
@@ -135,7 +143,6 @@ B64
 chmod 644 /opt/pocketweb/brand-server.mjs
 [[ -s /opt/pocketweb/brand-server.mjs ]] || die "Could not write the branding store"
 
-node_bin="$(command -v node)"
 cat >/etc/systemd/system/pocketweb-brand.service <<EOF
 [Unit]
 Description=Pocketweb branding store
