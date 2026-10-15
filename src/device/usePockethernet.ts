@@ -24,7 +24,11 @@ export interface PockethernetClient extends PockethernetState {
   request: (command: Packet, types: number | number[], timeout?: number) => Promise<Packet>;
   send: (command: Packet) => Promise<void>;
   waitFor: (types: number | number[], timeout?: number) => Promise<Packet>;
-  collectFor: (type: number, timeout?: number) => Promise<Packet[]>;
+  collectFor: (
+    type: number,
+    timeout?: number,
+    onPacket?: (packet: Packet) => void,
+  ) => Promise<Packet[]>;
 }
 
 interface PacketWaiter {
@@ -37,6 +41,7 @@ interface PacketWaiter {
 interface PacketCollector {
   type: number;
   packets: Packet[];
+  onPacket?: (packet: Packet) => void;
 }
 
 interface BluetoothRefs {
@@ -88,7 +93,10 @@ export function usePockethernet(): PockethernetClient {
   const onPacket = useCallback((packet: Packet) => {
     refs.current.collectors
       .filter((item) => item.type === packet.type)
-      .forEach((item) => item.packets.push(packet));
+      .forEach((item) => {
+        item.packets.push(packet);
+        item.onPacket?.(packet);
+      });
     const waiter = refs.current.waiters.find(
       (item) => item.types.includes(packet.type) || packet.type === PACKET.NACK,
     );
@@ -157,9 +165,9 @@ export function usePockethernet(): PockethernetClient {
   );
 
   const collectFor = useCallback(
-    (type: number, timeout = 5000): Promise<Packet[]> =>
+    (type: number, timeout = 5000, onPacket?: (packet: Packet) => void): Promise<Packet[]> =>
       new Promise<Packet[]>((resolve) => {
-        const collector: PacketCollector = { type, packets: [] };
+        const collector: PacketCollector = { type, packets: [], onPacket };
         refs.current.collectors.push(collector);
         setTimeout(() => {
           refs.current.collectors = refs.current.collectors.filter((item) => item !== collector);

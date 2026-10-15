@@ -14,6 +14,7 @@ import {
   linkCommand,
   parseLinkPacket,
   parsePoePacket,
+  mergeVlanTags,
   parseVlanPacket,
   parseBerPacket,
   parseCdpLldpPacket,
@@ -228,6 +229,19 @@ assert.deepEqual(parseVlanPacket(new Uint8Array([0, 0, 0xb0, 100, 0x10, 100])), 
   { id: 100, priority: 0, dei: true },
   { id: 100, priority: 5, dei: true },
 ]);
+assert.deepEqual(
+  mergeVlanTags(
+    [{ id: 20, priority: 0, dei: false }],
+    [
+      { id: 20, priority: 0, dei: false },
+      { id: 10, priority: 1, dei: false },
+    ],
+  ),
+  [
+    { id: 10, priority: 1, dei: false },
+    { id: 20, priority: 0, dei: false },
+  ],
+);
 const trafficConfig = trafficEthernetCommand();
 const trafficConfigView = new DataView(trafficConfig.payload.buffer);
 assert.equal(trafficConfig.type, PACKET.ETH_CONFIG);
