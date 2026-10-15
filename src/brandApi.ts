@@ -81,12 +81,16 @@ export async function handleBrandRequest(
       ? new Response(null, { headers: json(brand).headers })
       : json(brand);
   }
-  if (request.method !== 'PUT') return text('Method not allowed', 405, 'GET, PUT');
+  if (request.method !== 'PUT' && request.method !== 'POST') {
+    return text('Method not allowed', 405, 'GET, POST, PUT');
+  }
   if (!token)
     return text('Branding is locked until an admin password is configured on the server.', 403);
   const header = request.headers.get('Authorization') ?? '';
   const provided = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
   if (!(await passwordMatches(token, provided))) return text('Admin password is wrong.', 401);
+  if (request.method === 'POST')
+    return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   if (Number(request.headers.get('Content-Length') ?? 0) > MAX_IMAGE_LENGTH * 2 + 10_000) {
     return text('Branding is too large.', 413);
   }

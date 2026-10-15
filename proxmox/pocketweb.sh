@@ -205,7 +205,7 @@ ${listen}
         proxy_connect_timeout 5s;
         proxy_read_timeout 20s;
         add_header Cache-Control "no-store" always;
-        limit_except GET PUT { deny all; }
+        limit_except GET POST PUT { deny all; }
     }
 
     location = /api/latest-version {

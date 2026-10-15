@@ -56,6 +56,11 @@ assert.equal(locked.status, 403);
 const denied = await request('PUT', empty, 'secret', { name: 'Acme' }, 'wrong');
 assert.equal(denied.status, 401);
 
+const opened = await request('POST', empty, 'secret', undefined, 'secret');
+assert.equal(opened.status, 204);
+const refused = await request('POST', empty, 'secret', undefined, 'wrong');
+assert.equal(refused.status, 401);
+
 const saved = await request(
   'PUT',
   empty,

@@ -14,6 +14,16 @@ export async function fetchInstalledBrand(): Promise<BrandSettings | null> {
   }
 }
 
+export async function unlockBrandSettings(password: string): Promise<void> {
+  const response = await fetch('/api/brand', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${password}` },
+  });
+  if (response.ok) return;
+  throw new Error((await response.text()) || 'Admin password is wrong.');
+}
+
 export async function saveInstalledBrand(
   brand: BrandSettings,
   password: string,
