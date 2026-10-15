@@ -63,8 +63,19 @@
   display: grid;
   gap: 6px;
 }
-.settings-dialog .text-field input {
+.settings-dialog .text-field input,
+.settings-dialog .text-field textarea {
   width: 100%;
+}
+.settings-dialog .text-field textarea {
+  min-height: 88px;
+  padding: 8px 9px;
+  border: 1px solid #cfd9e4;
+  border-radius: 6px;
+  color: #192a40;
+  background: #fff;
+  font: inherit;
+  line-height: 1.45;
 }
 .settings-logo-row {
   display: grid;
@@ -130,6 +141,7 @@
   font-size: 0.72rem;
   line-height: 1.55;
   text-align: center;
+  white-space: pre-wrap;
 }
 .app-footer a {
   color: inherit;

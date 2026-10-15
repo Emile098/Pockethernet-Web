@@ -28,6 +28,7 @@ export function parseBrandSettings(value: unknown): BrandSettings | null {
     logoName: typeof value.logoName === 'string' ? value.logoName.slice(0, 120) : '',
     iconDataUrl,
     iconName: typeof value.iconName === 'string' ? value.iconName.slice(0, 120) : '',
+    footer: typeof value.footer === 'string' ? value.footer.slice(0, 500) : '',
   };
 }
 

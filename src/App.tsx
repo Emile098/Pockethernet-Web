@@ -446,7 +446,7 @@ export default function App(): ReactElement {
           }}
         />
       )}
-      <AppFooter />
+      <AppFooter footer={brand.footer} />
       {(notice || ble.error) && (
         <Toast
           message={notice || ble.error}

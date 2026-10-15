@@ -50,7 +50,12 @@ export const DEFAULT_BRAND_SETTINGS: BrandSettings = {
   logoName: '',
   iconDataUrl: '',
   iconName: '',
+  footer: '',
 };
+
+export function defaultFooterText(year = new Date().getFullYear()): string {
+  return `© ${year} jLynx.net. Independent community project. Pockethernet is a registered trademark of Pockethernet Ltd. Not affiliated with, endorsed by, or sponsored by Pockethernet Ltd.`;
+}
 
 export function brandLabel(brand: BrandSettings): string {
   const name = brand.name.trim();
@@ -65,6 +70,7 @@ export function loadBrandSettings(): BrandSettings {
     logoName: typeof saved.logoName === 'string' ? saved.logoName : '',
     iconDataUrl: typeof saved.iconDataUrl === 'string' ? saved.iconDataUrl : '',
     iconName: typeof saved.iconName === 'string' ? saved.iconName : '',
+    footer: typeof saved.footer === 'string' ? saved.footer : '',
   };
 }
 
