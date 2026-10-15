@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { parseBrandSettings } from './brandApi';
 import worker from './worker';
 
 const origin = 'https://example.test';
@@ -61,5 +62,17 @@ assert.equal(await currentScript.text(), 'export const current = true;');
 files.delete('/assets/index-new123.js');
 const missingCurrentScript = await get('/assets/index-old456.js');
 assert.equal(missingCurrentScript.status, 404);
+
+const brand = await get('/api/brand');
+assert.equal(brand.status, 200);
+assert.equal(
+  parseBrandSettings(JSON.parse(await brand.text()) as unknown)?.name,
+  'Pocketweb for Pockethernet',
+);
+const brandWrite = await worker.fetch(
+  new Request(new URL('/api/brand', origin), { method: 'PUT' }),
+  env,
+);
+assert.equal(brandWrite.status, 503);
 
 console.log('Legacy PWA asset recovery tests passed');

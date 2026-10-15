@@ -9,6 +9,9 @@ storybook-static/
 # Local Android reverse-engineering reference
 android-reference/
 
+# Saved local branding
+data/
+
 # Local environment files
 .env
 .env.*

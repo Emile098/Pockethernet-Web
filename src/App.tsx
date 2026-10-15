@@ -17,9 +17,7 @@ import {
 import { errorMessage } from '@/app/format';
 import { runMeasurements } from '@/app/runMeasurements';
 import {
-  applyDocumentBrand,
   loadBlinkerSettings,
-  loadBrandSettings,
   loadReportDetails,
   loadReportPreferences,
   loadReports,
@@ -37,7 +35,6 @@ import {
   type Ipv4UiSettings,
   type Ipv6DisplayResult,
   type PingDisplayResult,
-  type BrandSettings,
   type ReportDetails,
   type ReportPreferences,
   type ReportResults,
@@ -56,6 +53,7 @@ import { TestPage } from '@/features/measurements/TestPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
 import { ToolsPage } from '@/features/tools/ToolsPage';
 import { ActionDock, AppFooter, ConnectionButton, Toast } from '@/shared/layout/AppControls';
+import { useServerBrand, saveInstalledBrand } from '@/app/brandClient';
 import { BrandLockup, BrandSettingsDialog, SettingsButton } from '@/shared/layout/BrandSettings';
 import { MainNav } from '@/shared/layout/Layout';
 import { usePockethernet } from '@/device/usePockethernet';
@@ -115,7 +113,7 @@ export default function App(): ReactElement {
   const [running, setRunning] = useState(false);
   const [activeTest, setActiveTest] = useState<TestId | null>(null);
   const [notice, setNotice] = useState('');
-  const [brand, setBrand] = useState<BrandSettings>(loadBrandSettings);
+  const { brand, setBrand } = useServerBrand();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [firmwareCheck, setFirmwareCheck] = useState<FirmwareCheck | null>(null);
   const [firmwareChecking, setFirmwareChecking] = useState(false);
@@ -158,15 +156,6 @@ export default function App(): ReactElement {
   useEffect(() => {
     localStorage.setItem('pockethernet.reports', JSON.stringify(reports));
   }, [reports]);
-  useEffect(() => {
-    try {
-      localStorage.setItem('pockethernet.brand', JSON.stringify(brand));
-    } catch {
-      setNotice('Branding is too large to save in this browser.');
-    }
-    applyDocumentBrand(brand);
-  }, [brand]);
-
   const currentResults: ReportResults = {
     wiremap,
     tdr,
@@ -363,9 +352,12 @@ export default function App(): ReactElement {
           {settingsOpen && (
             <BrandSettingsDialog
               brand={brand}
-              onChange={setBrand}
               onClose={() => setSettingsOpen(false)}
               onNotice={setNotice}
+              onSave={async (next, password) => {
+                setBrand(await saveInstalledBrand(next, password));
+                setNotice('Branding saved for everyone who opens this site.');
+              }}
             />
           )}
           <ConnectionButton

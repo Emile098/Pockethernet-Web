@@ -6,7 +6,16 @@ compatibility_date = "2026-09-15"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+# Saving a site-wide logo also needs:
+#   npx wrangler kv namespace create BRAND
+#   npx wrangler secret put POCKETWEB_BRAND_TOKEN
+# [[kv_namespaces]]
+# binding = "BRAND"
+# id = "<namespace id>"
+
 run_worker_first = [
+  "/api/brand",
+  "/api/latest-version",
   "/assets/index-*.js",
   "/assets/index-*.css",
   "/assets/logo-*.png",

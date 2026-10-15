@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
-import { loadBrandSettings } from '@/app/storage';
+import { useServerBrand } from '@/app/brandClient';
 import { BrandLockup } from './BrandSettings';
 
 type DeviceFamily = 'ios' | 'android' | 'desktop';
@@ -64,6 +64,7 @@ function SupportLink({ device }: { device: DeviceFamily }): ReactElement {
 
 export function WebBluetoothGate({ children }: { children: ReactNode }): ReactElement {
   const supported = window.isSecureContext && 'bluetooth' in navigator;
+  const { brand } = useServerBrand();
   if (supported) return <>{children}</>;
 
   const device = getDeviceFamily();
@@ -74,7 +75,6 @@ export function WebBluetoothGate({ children }: { children: ReactNode }): ReactEl
         ? 'Open this site in the latest version of Google Chrome for Android, which supports Web Bluetooth.'
         : 'Open this site in the latest version of Google Chrome or Microsoft Edge on a Bluetooth-capable computer.';
 
-  const brand = loadBrandSettings();
   return (
     <main className="support-page">
       <section className="support-panel" aria-labelledby="support-title">

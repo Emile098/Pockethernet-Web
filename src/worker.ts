@@ -1,9 +1,18 @@
+import { handleBrandRequest } from '@/brandApi';
+
 const LATEST_VERSION_URL = 'https://ota.pockethernet.com/latest_version';
+
+interface KvNamespace {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+}
 
 interface Env {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
+  BRAND?: KvNamespace;
+  POCKETWEB_BRAND_TOKEN?: string;
 }
 
 async function serveLegacyAsset(request: Request, env: Env): Promise<Response> {
@@ -33,9 +42,37 @@ async function serveLegacyAsset(request: Request, env: Env): Promise<Response> {
   return new Response(current.body, { status: current.status, headers });
 }
 
+async function serveBrand(request: Request, env: Env): Promise<Response> {
+  if (!env.BRAND) {
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      return handleBrandRequest(
+        request,
+        { read: () => Promise.resolve(null), write: () => Promise.resolve() },
+        undefined,
+      );
+    }
+    return new Response(
+      'This server cannot store branding yet. Add a BRAND KV namespace and POCKETWEB_BRAND_TOKEN.',
+      {
+        status: 503,
+        headers: { 'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8' },
+      },
+    );
+  }
+  return handleBrandRequest(
+    request,
+    {
+      read: () => env.BRAND?.get('settings') ?? Promise.resolve(null),
+      write: (body) => env.BRAND?.put('settings', body) ?? Promise.resolve(),
+    },
+    env.POCKETWEB_BRAND_TOKEN,
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/api/brand') return serveBrand(request, env);
     if (url.pathname !== '/api/latest-version') return serveLegacyAsset(request, env);
     if (request.method !== 'GET')
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } });
