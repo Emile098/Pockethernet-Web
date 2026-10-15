@@ -194,5 +194,8 @@ if ! cmp -s "$repair_decoded" "${root}/brand-server.mjs"; then
 fi
 rm -f "$repair_decoded"
 bash -n "${root}/repair-brand.sh"
+assert_contains "$(cat "${root}/repair-brand.sh")" \
+  'export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+  "repair script can see the installer Node"
 
 printf 'nginx config and installer checks passed\n'
