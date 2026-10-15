@@ -142,6 +142,7 @@ export const ConfigurableResults: Story = {
         settings={{ tagging: true, id: '100' }}
         onSettingsChange={noop}
         disabled={false}
+        listening
       />
       <Ipv4Results
         result={{

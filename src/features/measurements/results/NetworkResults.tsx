@@ -51,6 +51,7 @@ interface VlanResultsProps {
   settings: VlanSettings;
   onSettingsChange: StateSetter<VlanSettings>;
   disabled: boolean;
+  listening?: boolean;
 }
 
 export function VlanResults({
@@ -58,6 +59,7 @@ export function VlanResults({
   settings,
   onSettingsChange,
   disabled,
+  listening = false,
 }: VlanResultsProps): ReactElement {
   const updateTagging = (): void => {
     onSettingsChange((current) => ({ ...current, tagging: !current.tagging }));
@@ -94,17 +96,24 @@ export function VlanResults({
         <span>Incoming</span>
         <span>Detected VLAN IDs</span>
       </div>
-      {rows.map((tag) => (
-        <div className="vlan-row" key={`${tag.id}:${tag.priority}:${tag.dei}`}>
-          <span />
-          <strong>
-            {tag.id}
-            {tag.priority ? ` PRI: ${tag.priority}` : ''}
-            {tag.dei ? ' DEI' : ''}
-          </strong>
-        </div>
-      ))}
-      {!result && (
+      <div aria-live="polite">
+        {rows.map((tag) => (
+          <div className="vlan-row" key={`${tag.id}:${tag.priority}:${tag.dei}`}>
+            <span />
+            <strong>
+              {tag.id}
+              {tag.priority ? ` PRI: ${tag.priority}` : ''}
+              {tag.dei ? ' DEI' : ''}
+            </strong>
+          </div>
+        ))}
+        {listening && (
+          <p className="vlan-listening">
+            {rows.length ? 'Still listening for VLAN tags' : 'Listening for VLAN tags'}
+          </p>
+        )}
+      </div>
+      {!result && !listening && (
         <EmptyState className="vlan-awaiting">
           Run a measurement to collect incoming VLAN tags
         </EmptyState>

@@ -128,6 +128,18 @@ export function parseVlanPacket(payload: Uint8Array): VlanTag[] {
     }));
 }
 
+export function mergeVlanTags(
+  current: readonly VlanTag[],
+  incoming: readonly VlanTag[],
+): VlanTag[] {
+  const tags = new Map<string, VlanTag>();
+  for (const tag of [...current, ...incoming])
+    tags.set(`${tag.id}:${tag.priority}:${tag.dei}`, tag);
+  return Array.from(tags.values()).sort(
+    (first, second) => first.id - second.id || first.priority - second.priority,
+  );
+}
+
 export function parseDeviceInfo(payload: Uint8Array): DeviceInfo {
   if (payload.length < 35) throw new Error('Invalid device-information response');
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);

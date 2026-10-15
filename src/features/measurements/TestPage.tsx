@@ -109,7 +109,7 @@ const TEST_HELP: Record<TestId, { description: string; note?: string }> = {
   },
   vlan: {
     description:
-      'Listen for up to 30 seconds to discover VLAN tags seen on the port. Enable outgoing tagging to place Pockethernet DHCP, Ping, and External IP traffic on a specific VLAN.',
+      'Listen for up to 30 seconds to discover VLAN tags seen on the port. Each tag appears as soon as it arrives. Enable outgoing tagging to place Pockethernet DHCP, Ping, and External IP traffic on a specific VLAN.',
   },
   traffic: {
     description:
@@ -268,6 +268,7 @@ export function TestPage(props: TestPageProps): ReactElement {
           settings={props.vlanSettings}
           onSettingsChange={props.onVlanSettingsChange}
           disabled={running}
+          listening={running && activeTest === 'vlan'}
         />
       </TestPanel>
       <TestPanel

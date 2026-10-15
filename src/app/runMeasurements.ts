@@ -21,6 +21,7 @@ import {
   parseTdrCrosstalkPacket,
   parseTdrPacket,
   parseTrafficPacket,
+  mergeVlanTags,
   parseVlanPacket,
   parseWiremapPacket,
   pingCommand,
@@ -91,6 +92,10 @@ export interface MeasurementContext {
 
 const sleep = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function vlanSummary(tags: VlanTag[]): string {
+  return `${tags.length} VLAN ID${tags.length === 1 ? '' : 's'} detected`;
+}
 
 export async function runMeasurements(context: MeasurementContext): Promise<void> {
   const {
@@ -166,6 +171,7 @@ export async function runMeasurements(context: MeasurementContext): Promise<void
     if (selected.has('vlan')) {
       setActiveTest('vlan');
       setVlan(null);
+      expand('vlan');
       const outgoingVlanId = vlanSettings.tagging ? Number(vlanSettings.id) : 0;
       if (
         vlanSettings.tagging &&
@@ -176,24 +182,28 @@ export async function runMeasurements(context: MeasurementContext): Promise<void
       const linkWait = ble.waitFor(PACKET.PHY_LINKINFO, 12000);
       await ble.request(vlanEthernetCommand(outgoingVlanId, customMac), PACKET.ACK, 5000);
       await linkWait;
-      const packets = await ble.collectFor(PACKET.VLAN_COLLECT, 30000);
-      const tags = new Map<string, VlanTag>();
-      packets
-        .flatMap((packet) => parseVlanPacket(packet.payload))
-        .forEach((tag) => tags.set(`${tag.id}:${tag.priority}:${tag.dei}`, tag));
-      const detected = Array.from(tags.values()).sort(
-        (first, second) => first.id - second.id || first.priority - second.priority,
+      let detected: VlanTag[] = [];
+      const packets = await ble.collectFor(PACKET.VLAN_COLLECT, 30000, (packet) => {
+        let incoming: VlanTag[];
+        try {
+          incoming = parseVlanPacket(packet.payload);
+        } catch {
+          return;
+        }
+        const next = mergeVlanTags(detected, incoming);
+        if (next.length === detected.length) return;
+        detected = next;
+        setVlan({ status: 'OK', summary: vlanSummary(detected), tags: detected });
+      });
+      detected = packets.reduce<VlanTag[]>(
+        (tags, packet) => mergeVlanTags(tags, parseVlanPacket(packet.payload)),
+        [],
       );
       setVlan(
         detected.length
-          ? {
-              status: 'OK',
-              summary: `${detected.length} VLAN ID${detected.length === 1 ? '' : 's'} detected`,
-              tags: detected,
-            }
+          ? { status: 'OK', summary: vlanSummary(detected), tags: detected }
           : { status: 'not_OK', summary: 'No VLAN tags received', tags: [] },
       );
-      expand('vlan');
     }
     if (selected.has('traffic')) {
       setActiveTest('traffic');
