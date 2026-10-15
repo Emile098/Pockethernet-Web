@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# Repair the Pocketweb branding store inside an existing container.
+#   pct exec 110 -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/repair-brand.sh)"
+set -euo pipefail
+
+info() { printf '==> %s\n' "$*" >&2; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+[[ -d /opt/pocketweb ]] || die "Pocketweb is not installed in this container"
+command -v node >/dev/null 2>&1 || die "node is not installed"
+command -v systemctl >/dev/null 2>&1 || die "systemd is not available"
+command -v openssl >/dev/null 2>&1 || die "openssl is not installed"
+
+install -d -m 0750 /etc/pocketweb /var/lib/pocketweb
+if [[ ! -s /etc/pocketweb/brand.token ]]; then
+  openssl rand -hex 18 >/etc/pocketweb/brand.token
+fi
+chmod 600 /etc/pocketweb/brand.token
+token="$(tr -d '[:space:]' </etc/pocketweb/brand.token)"
+[[ "$token" =~ ^[A-Za-z0-9]{8,80}$ ]] || die "Stored branding password is unusable"
+printf '%s\n' "$token" >/etc/pocketweb/brand.token
+cat >/etc/pocketweb/brand.env <<EOF
+POCKETWEB_BRAND_TOKEN=${token}
+POCKETWEB_BRAND_FILE=/var/lib/pocketweb/brand.json
+POCKETWEB_BRAND_PORT=8787
+EOF
+chmod 600 /etc/pocketweb/brand.env
+
+info "Installing the branding store"
+base64 -d >/opt/pocketweb/brand-server.mjs <<'B64'
+Ly8gR2VuZXJhdGVkIGZyb20gc3JjL2JyYW5kLXNlcnZlci50cy4gRG8gbm90IGVkaXQuCgovLyBz
+cmMvYnJhbmQtc2VydmVyLnRzCmltcG9ydCB7IGNyZWF0ZVNlcnZlciB9IGZyb20gIm5vZGU6aHR0
+cCI7CgovLyBzcmMvYXBwL3N0b3JhZ2UudHMKdmFyIERFRkFVTFRfQlJBTkRfTkFNRSA9ICJQb2Nr
+ZXR3ZWIgZm9yIFBvY2tldGhlcm5ldCI7CnZhciBERUZBVUxUX0JSQU5EX1NFVFRJTkdTID0gewog
+IG5hbWU6IERFRkFVTFRfQlJBTkRfTkFNRSwKICBsb2dvRGF0YVVybDogIiIsCiAgbG9nb05hbWU6
+ICIiLAogIGljb25EYXRhVXJsOiAiIiwKICBpY29uTmFtZTogIiIKfTsKCi8vIHNyYy9icmFuZEFw
+aS50cwp2YXIgTUFYX0lNQUdFX0xFTkdUSCA9IDJlNjsKdmFyIFBOR19EQVRBX1VSTCA9IC9eZGF0
+YTppbWFnZVwvcG5nO2Jhc2U2NCxbQS1aYS16MC05Ky9dKz17MCwyfSQvOwpmdW5jdGlvbiBpc1Jl
+Y29yZCh2YWx1ZSkgewogIHJldHVybiB0eXBlb2YgdmFsdWUgPT09ICJvYmplY3QiICYmIHZhbHVl
+ICE9PSBudWxsICYmICFBcnJheS5pc0FycmF5KHZhbHVlKTsKfQpmdW5jdGlvbiB2YWxpZEltYWdl
+KHZhbHVlKSB7CiAgcmV0dXJuIHZhbHVlID09PSAiIiB8fCB2YWx1ZS5sZW5ndGggPD0gTUFYX0lN
+QUdFX0xFTkdUSCAmJiBQTkdfREFUQV9VUkwudGVzdCh2YWx1ZSk7Cn0KZnVuY3Rpb24gcGFyc2VC
+cmFuZFNldHRpbmdzKHZhbHVlKSB7CiAgaWYgKCFpc1JlY29yZCh2YWx1ZSkpIHJldHVybiBudWxs
+OwogIGNvbnN0IGxvZ29EYXRhVXJsID0gdHlwZW9mIHZhbHVlLmxvZ29EYXRhVXJsID09PSAic3Ry
+aW5nIiA/IHZhbHVlLmxvZ29EYXRhVXJsIDogIiI7CiAgY29uc3QgaWNvbkRhdGFVcmwgPSB0eXBl
+b2YgdmFsdWUuaWNvbkRhdGFVcmwgPT09ICJzdHJpbmciID8gdmFsdWUuaWNvbkRhdGFVcmwgOiAi
+IjsKICBpZiAoIXZhbGlkSW1hZ2UobG9nb0RhdGFVcmwpIHx8ICF2YWxpZEltYWdlKGljb25EYXRh
+VXJsKSkgcmV0dXJuIG51bGw7CiAgcmV0dXJuIHsKICAgIG5hbWU6IHR5cGVvZiB2YWx1ZS5uYW1l
+ID09PSAic3RyaW5nIiA/IHZhbHVlLm5hbWUuc2xpY2UoMCwgODApIDogREVGQVVMVF9CUkFORF9T
+RVRUSU5HUy5uYW1lLAogICAgbG9nb0RhdGFVcmwsCiAgICBsb2dvTmFtZTogdHlwZW9mIHZhbHVl
+LmxvZ29OYW1lID09PSAic3RyaW5nIiA/IHZhbHVlLmxvZ29OYW1lLnNsaWNlKDAsIDEyMCkgOiAi
+IiwKICAgIGljb25EYXRhVXJsLAogICAgaWNvbk5hbWU6IHR5cGVvZiB2YWx1ZS5pY29uTmFtZSA9
+PT0gInN0cmluZyIgPyB2YWx1ZS5pY29uTmFtZS5zbGljZSgwLCAxMjApIDogIiIKICB9Owp9CmZ1
+bmN0aW9uIHN0b3JlZEJyYW5kKHJhdykgewogIGlmICghcmF3KSByZXR1cm4gREVGQVVMVF9CUkFO
+RF9TRVRUSU5HUzsKICB0cnkgewogICAgY29uc3QgcGFyc2VkID0gSlNPTi5wYXJzZShyYXcpOwog
+ICAgcmV0dXJuIHBhcnNlQnJhbmRTZXR0aW5ncyhwYXJzZWQpID8/IERFRkFVTFRfQlJBTkRfU0VU
+VElOR1M7CiAgfSBjYXRjaCB7CiAgICByZXR1cm4gREVGQVVMVF9CUkFORF9TRVRUSU5HUzsKICB9
+Cn0KZnVuY3Rpb24gdGV4dChtZXNzYWdlLCBzdGF0dXMsIGFsbG93ID0gIiIpIHsKICBjb25zdCBo
+ZWFkZXJzID0gbmV3IEhlYWRlcnMoewogICAgIkNhY2hlLUNvbnRyb2wiOiAibm8tc3RvcmUiLAog
+ICAgIkNvbnRlbnQtVHlwZSI6ICJ0ZXh0L3BsYWluOyBjaGFyc2V0PXV0Zi04IgogIH0pOwogIGlm
+IChhbGxvdykgaGVhZGVycy5zZXQoIkFsbG93IiwgYWxsb3cpOwogIHJldHVybiBuZXcgUmVzcG9u
+c2UobWVzc2FnZSwgeyBzdGF0dXMsIGhlYWRlcnMgfSk7Cn0KZnVuY3Rpb24ganNvbihicmFuZCwg
+c3RhdHVzID0gMjAwKSB7CiAgcmV0dXJuIG5ldyBSZXNwb25zZShKU09OLnN0cmluZ2lmeShicmFu
+ZCksIHsKICAgIHN0YXR1cywKICAgIGhlYWRlcnM6IHsKICAgICAgIkNhY2hlLUNvbnRyb2wiOiAi
+bm8tc3RvcmUiLAogICAgICAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb247IGNoYXJz
+ZXQ9dXRmLTgiCiAgICB9CiAgfSk7Cn0KYXN5bmMgZnVuY3Rpb24gcGFzc3dvcmRNYXRjaGVzKGV4
+cGVjdGVkLCBwcm92aWRlZCkgewogIGlmICghZXhwZWN0ZWQgfHwgIXByb3ZpZGVkKSByZXR1cm4g
+ZmFsc2U7CiAgY29uc3QgZGlnZXN0ID0gYXN5bmMgKHZhbHVlKSA9PiBuZXcgVWludDhBcnJheShh
+d2FpdCBjcnlwdG8uc3VidGxlLmRpZ2VzdCgiU0hBLTI1NiIsIG5ldyBUZXh0RW5jb2RlcigpLmVu
+Y29kZSh2YWx1ZSkpKTsKICBjb25zdCBbbGVmdCwgcmlnaHRdID0gYXdhaXQgUHJvbWlzZS5hbGwo
+W2RpZ2VzdChleHBlY3RlZCksIGRpZ2VzdChwcm92aWRlZCldKTsKICBsZXQgZGlmZmVyZW5jZSA9
+IDA7CiAgZm9yIChsZXQgaW5kZXggPSAwOyBpbmRleCA8IGxlZnQubGVuZ3RoOyBpbmRleCArPSAx
+KSBkaWZmZXJlbmNlIHw9IGxlZnRbaW5kZXhdIF4gcmlnaHRbaW5kZXhdOwogIHJldHVybiBkaWZm
+ZXJlbmNlID09PSAwOwp9CmFzeW5jIGZ1bmN0aW9uIGhhbmRsZUJyYW5kUmVxdWVzdChyZXF1ZXN0
+LCBzdG9yZTIsIHRva2VuKSB7CiAgaWYgKHJlcXVlc3QubWV0aG9kID09PSAiR0VUIiB8fCByZXF1
+ZXN0Lm1ldGhvZCA9PT0gIkhFQUQiKSB7CiAgICBjb25zdCBicmFuZDIgPSBzdG9yZWRCcmFuZChh
+d2FpdCBzdG9yZTIucmVhZCgpKTsKICAgIHJldHVybiByZXF1ZXN0Lm1ldGhvZCA9PT0gIkhFQUQi
+ID8gbmV3IFJlc3BvbnNlKG51bGwsIHsgaGVhZGVyczoganNvbihicmFuZDIpLmhlYWRlcnMgfSkg
+OiBqc29uKGJyYW5kMik7CiAgfQogIGlmIChyZXF1ZXN0Lm1ldGhvZCAhPT0gIlBVVCIgJiYgcmVx
+dWVzdC5tZXRob2QgIT09ICJQT1NUIikgewogICAgcmV0dXJuIHRleHQoIk1ldGhvZCBub3QgYWxs
+b3dlZCIsIDQwNSwgIkdFVCwgUE9TVCwgUFVUIik7CiAgfQogIGlmICghdG9rZW4pCiAgICByZXR1
+cm4gdGV4dCgiQnJhbmRpbmcgaXMgbG9ja2VkIHVudGlsIGFuIGFkbWluIHBhc3N3b3JkIGlzIGNv
+bmZpZ3VyZWQgb24gdGhlIHNlcnZlci4iLCA0MDMpOwogIGNvbnN0IGhlYWRlciA9IHJlcXVlc3Qu
+aGVhZGVycy5nZXQoIkF1dGhvcml6YXRpb24iKSA/PyAiIjsKICBjb25zdCBwcm92aWRlZCA9IGhl
+YWRlci5zdGFydHNXaXRoKCJCZWFyZXIgIikgPyBoZWFkZXIuc2xpY2UoIkJlYXJlciAiLmxlbmd0
+aCkgOiAiIjsKICBpZiAoIWF3YWl0IHBhc3N3b3JkTWF0Y2hlcyh0b2tlbiwgcHJvdmlkZWQpKSBy
+ZXR1cm4gdGV4dCgiQWRtaW4gcGFzc3dvcmQgaXMgd3JvbmcuIiwgNDAxKTsKICBpZiAocmVxdWVz
+dC5tZXRob2QgPT09ICJQT1NUIikKICAgIHJldHVybiBuZXcgUmVzcG9uc2UobnVsbCwgeyBzdGF0
+dXM6IDIwNCwgaGVhZGVyczogeyAiQ2FjaGUtQ29udHJvbCI6ICJuby1zdG9yZSIgfSB9KTsKICBp
+ZiAoTnVtYmVyKHJlcXVlc3QuaGVhZGVycy5nZXQoIkNvbnRlbnQtTGVuZ3RoIikgPz8gMCkgPiBN
+QVhfSU1BR0VfTEVOR1RIICogMiArIDFlNCkgewogICAgcmV0dXJuIHRleHQoIkJyYW5kaW5nIGlz
+IHRvbyBsYXJnZS4iLCA0MTMpOwogIH0KICBsZXQgYm9keTsKICB0cnkgewogICAgYm9keSA9IGF3
+YWl0IHJlcXVlc3QuanNvbigpOwogIH0gY2F0Y2ggewogICAgcmV0dXJuIHRleHQoIkJyYW5kaW5n
+IG11c3QgYmUgSlNPTi4iLCA0MDApOwogIH0KICBjb25zdCBicmFuZCA9IHBhcnNlQnJhbmRTZXR0
+aW5ncyhib2R5KTsKICBpZiAoIWJyYW5kKSByZXR1cm4gdGV4dCgiRWFjaCBsb2dvIG11c3QgYmUg
+YSBQTkcgaW1hZ2UuIiwgNDAwKTsKICBhd2FpdCBzdG9yZTIud3JpdGUoSlNPTi5zdHJpbmdpZnko
+YnJhbmQpKTsKICByZXR1cm4ganNvbihicmFuZCk7Cn0KCi8vIHNyYy9icmFuZEZpbGUudHMKaW1w
+b3J0IHsgbWtkaXIsIHJlYWRGaWxlLCByZW5hbWUsIHdyaXRlRmlsZSB9IGZyb20gIm5vZGU6ZnMv
+cHJvbWlzZXMiOwppbXBvcnQgeyBkaXJuYW1lIH0gZnJvbSAibm9kZTpwYXRoIjsKZnVuY3Rpb24g
+ZmlsZUJyYW5kU3RvcmUoZmlsZTIpIHsKICByZXR1cm4gewogICAgYXN5bmMgcmVhZCgpIHsKICAg
+ICAgdHJ5IHsKICAgICAgICByZXR1cm4gYXdhaXQgcmVhZEZpbGUoZmlsZTIsICJ1dGY4Iik7CiAg
+ICAgIH0gY2F0Y2ggewogICAgICAgIHJldHVybiBudWxsOwogICAgICB9CiAgICB9LAogICAgYXN5
+bmMgd3JpdGUoYm9keSkgewogICAgICBhd2FpdCBta2RpcihkaXJuYW1lKGZpbGUyKSwgeyByZWN1
+cnNpdmU6IHRydWUgfSk7CiAgICAgIGNvbnN0IHRlbXBvcmFyeSA9IGAke2ZpbGUyfS50bXBgOwog
+ICAgICBhd2FpdCB3cml0ZUZpbGUodGVtcG9yYXJ5LCBib2R5KTsKICAgICAgYXdhaXQgcmVuYW1l
+KHRlbXBvcmFyeSwgZmlsZTIpOwogICAgfQogIH07Cn0KCi8vIHNyYy9icmFuZC1zZXJ2ZXIudHMK
+dmFyIHBvcnQgPSBOdW1iZXIocHJvY2Vzcy5lbnYuUE9DS0VUV0VCX0JSQU5EX1BPUlQgPz8gODc4
+Nyk7CnZhciBmaWxlID0gcHJvY2Vzcy5lbnYuUE9DS0VUV0VCX0JSQU5EX0ZJTEUgPz8gIi92YXIv
+bGliL3BvY2tldHdlYi9icmFuZC5qc29uIjsKdmFyIHN0b3JlID0gZmlsZUJyYW5kU3RvcmUoZmls
+ZSk7CnZhciBzZXJ2ZXIgPSBjcmVhdGVTZXJ2ZXIoKHJlcSwgcmVzKSA9PiB7CiAgY29uc3QgcGF0
+aCA9IChyZXEudXJsID8/ICIiKS5zcGxpdCgiPyIpWzBdOwogIGlmIChwYXRoICE9PSAiL2FwaS9i
+cmFuZCIpIHsKICAgIHJlcy53cml0ZUhlYWQoNDA0LCB7ICJDYWNoZS1Db250cm9sIjogIm5vLXN0
+b3JlIiB9KTsKICAgIHJlcy5lbmQoIk5vdCBmb3VuZCIpOwogICAgcmV0dXJuOwogIH0KICBjb25z
+dCBjaHVua3MgPSBbXTsKICByZXEub24oImRhdGEiLCAoY2h1bmspID0+IGNodW5rcy5wdXNoKGNo
+dW5rKSk7CiAgcmVxLm9uKCJlbmQiLCAoKSA9PiB7CiAgICBjb25zdCBib2R5ID0gQnVmZmVyLmNv
+bmNhdChjaHVua3MpOwogICAgdm9pZCBoYW5kbGVCcmFuZFJlcXVlc3QoCiAgICAgIG5ldyBSZXF1
+ZXN0KCJodHRwOi8vMTI3LjAuMC4xL2FwaS9icmFuZCIsIHsKICAgICAgICBtZXRob2Q6IHJlcS5t
+ZXRob2QsCiAgICAgICAgaGVhZGVyczogewogICAgICAgICAgQXV0aG9yaXphdGlvbjogcmVxLmhl
+YWRlcnMuYXV0aG9yaXphdGlvbiA/PyAiIiwKICAgICAgICAgICJDb250ZW50LVR5cGUiOiByZXEu
+aGVhZGVyc1siY29udGVudC10eXBlIl0gPz8gIiIsCiAgICAgICAgICAiQ29udGVudC1MZW5ndGgi
+OiBTdHJpbmcoYm9keS5ieXRlTGVuZ3RoKQogICAgICAgIH0sCiAgICAgICAgYm9keTogcmVxLm1l
+dGhvZCA9PT0gIkdFVCIgfHwgcmVxLm1ldGhvZCA9PT0gIkhFQUQiID8gdm9pZCAwIDogYm9keS50
+b1N0cmluZygidXRmOCIpCiAgICAgIH0pLAogICAgICBzdG9yZSwKICAgICAgcHJvY2Vzcy5lbnYu
+UE9DS0VUV0VCX0JSQU5EX1RPS0VOCiAgICApLnRoZW4oYXN5bmMgKHJlc3BvbnNlKSA9PiB7CiAg
+ICAgIGNvbnN0IGhlYWRlcnMgPSBPYmplY3QuZnJvbUVudHJpZXMocmVzcG9uc2UuaGVhZGVycy5l
+bnRyaWVzKCkpOwogICAgICByZXMud3JpdGVIZWFkKHJlc3BvbnNlLnN0YXR1cywgaGVhZGVycyk7
+CiAgICAgIHJlcy5lbmQoQnVmZmVyLmZyb20oYXdhaXQgcmVzcG9uc2UuYXJyYXlCdWZmZXIoKSkp
+OwogICAgfSkuY2F0Y2goKGVycm9yKSA9PiB7CiAgICAgIHJlcy53cml0ZUhlYWQoNTAwLCB7ICJD
+YWNoZS1Db250cm9sIjogIm5vLXN0b3JlIiB9KTsKICAgICAgcmVzLmVuZChlcnJvciBpbnN0YW5j
+ZW9mIEVycm9yID8gZXJyb3IubWVzc2FnZSA6ICJDb3VsZCBub3Qgc3RvcmUgYnJhbmRpbmciKTsK
+ICAgIH0pOwogIH0pOwp9KTsKc2VydmVyLmxpc3Rlbihwb3J0LCAiMTI3LjAuMC4xIiwgKCkgPT4g
+ewogIGNvbnNvbGUubG9nKGBQb2NrZXR3ZWIgYnJhbmRpbmcgc3RvcmUgbGlzdGVuaW5nIG9uIDEy
+Ny4wLjAuMToke3BvcnR9YCk7Cn0pOwo=
+B64
+chmod 644 /opt/pocketweb/brand-server.mjs
+[[ -s /opt/pocketweb/brand-server.mjs ]] || die "Could not write the branding store"
+
+node_bin="$(command -v node)"
+cat >/etc/systemd/system/pocketweb-brand.service <<EOF
+[Unit]
+Description=Pocketweb branding store
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/pocketweb/brand.env
+ExecStart=${node_bin} /opt/pocketweb/brand-server.mjs
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl stop pocketweb-brand.service >/dev/null 2>&1 || true
+systemctl reset-failed pocketweb-brand.service >/dev/null 2>&1 || true
+systemctl enable pocketweb-brand.service >/dev/null 2>&1 || true
+if ! systemctl restart pocketweb-brand.service; then
+  service pocketweb-brand restart
+fi
+
+body=""
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  body="$(curl -fsS --max-time 1 http://127.0.0.1:8787/api/brand 2>/dev/null || true)"
+  [[ "$body" == *'"name"'* ]] && break
+  sleep 0.3
+done
+if [[ "$body" != *'"name"'* ]]; then
+  journalctl -u pocketweb-brand -n 40 --no-pager >&2 || true
+  systemctl status pocketweb-brand --no-pager >&2 || true
+  systemctl stop pocketweb-brand.service >/dev/null 2>&1 || true
+  info "Foreground error from the branding store:"
+  POCKETWEB_BRAND_TOKEN="$token" POCKETWEB_BRAND_FILE=/var/lib/pocketweb/brand.json POCKETWEB_BRAND_PORT=8787 \
+    timeout 3 "$node_bin" /opt/pocketweb/brand-server.mjs || true
+  die "Branding store did not respond"
+fi
+printf '%s\n' "$body"
+info "Branding store is listening on 127.0.0.1:8787"
+info "Settings password: $token"
