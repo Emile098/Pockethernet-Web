@@ -593,8 +593,17 @@ validate_settings() {
   [[ "$POCKETWEB_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "POCKETWEB_REF must be a branch, tag, or commit"
   [[ "$POCKETWEB_STORAGE" =~ ^[A-Za-z0-9._-]+$ ]] || die "Storage name contains unsupported characters"
   [[ "$POCKETWEB_TEMPLATE_STORAGE" =~ ^[A-Za-z0-9._-]+$ ]] || die "Template storage name contains unsupported characters"
-  [[ "$POCKETWEB_TEMPLATE" =~ ^debian-1[23]-standard_[A-Za-z0-9._-]+\.tar\.zst$ ]] \
+  valid_template_name "$POCKETWEB_TEMPLATE" \
     || die "POCKETWEB_TEMPLATE must be a Debian 12 or 13 standard template"
+}
+
+valid_template_name() {
+  [[ "$1" =~ ^debian-1[23]-standard_[A-Za-z0-9._-]+\.tar\.zst$ ]]
+}
+
+latest_debian_template() {
+  local arch="$1"
+  grep -E "^debian-1[23]-standard_.+_${arch}\\.tar\\.zst$" | sort -V | tail -n 1
 }
 
 choose_template() {
@@ -604,11 +613,10 @@ choose_template() {
     return 0
   fi
   info "Refreshing the container template list"
-  pveam update
-  template="$(
-    pveam available --section system | awk '{ print $2 }' \
-      | grep -E "^debian-1[23]-standard_.+_${arch}\\.tar\\.zst$" | sort -V | tail -n 1
-  )"
+  # pveam update prints "update successful" on stdout. Keep it off the value
+  # captured for the template prompt.
+  pveam update >&2
+  template="$(pveam available --section system 2>/dev/null | awk 'NF { print $NF }' | latest_debian_template "$arch")"
   [[ -n "$template" ]] || die "No Debian 12 or 13 standard template is available for ${arch}"
   printf '%s\n' "$template"
 }

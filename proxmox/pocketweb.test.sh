@@ -53,6 +53,13 @@ assert_eq "$(pick_root_storage $'local\nfast-zfs')" "fast-zfs" "root storage avo
 assert_eq "$(pick_root_storage $'local')" "local" "root storage falls back to local"
 assert_eq "$(normalize_mb 2048MB)" "2048" "memory suffix"
 assert_eq "$(normalize_disk_gb 8G)" "8" "disk suffix"
+valid_template_name "debian-13-standard_13.6-1_amd64.tar.zst"
+if valid_template_name $'update successful\ndebian-13-standard_13.6-1_amd64.tar.zst'; then
+  echo "template status text should be rejected" >&2
+  exit 1
+fi
+assert_eq "$(printf '%s\n' 'update successful' 'debian-12-standard_12.12-1_amd64.tar.zst' 'debian-13-standard_13.6-1_amd64.tar.zst' | latest_debian_template amd64)" \
+  "debian-13-standard_13.6-1_amd64.tar.zst" "template list ignores pveam status"
 valid_ctid 100
 if valid_ctid 99; then
   echo "CTID 99 should be rejected" >&2
