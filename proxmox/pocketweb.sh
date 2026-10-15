@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create a Pocketweb LXC on a Proxmox VE host.
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/cursor/one-line-proxmox-container-4e30/proxmox/pocketweb.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh)"
 #
 # The container serves the built site. Web Bluetooth still runs in the browser
 # that opens the page, so the container does not need a Bluetooth adapter.
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 POCKETWEB_REPO_DEFAULT="https://github.com/Emile098/Pockethernet-Web.git"
-POCKETWEB_SCRIPT_URL="https://raw.githubusercontent.com/Emile098/Pockethernet-Web/cursor/one-line-proxmox-container-4e30/proxmox/pocketweb.sh"
+POCKETWEB_SCRIPT_URL="https://raw.githubusercontent.com/Emile098/Pockethernet-Web/main/proxmox/pocketweb.sh"
 POCKETWEB_IP="${POCKETWEB_IP:-}"
 POCKETWEB_GW="${POCKETWEB_GW:-}"
 
@@ -67,6 +67,7 @@ Environment:
   POCKETWEB_SOURCE           local when this script is inside a checkout, otherwise git.
   POCKETWEB_SRC              Checkout to install when the script is not inside it.
   POCKETWEB_REF              Git branch, tag, or commit. Default: main.
+                             Updates follow main unless this is set.
   POCKETWEB_REPO             HTTPS GitHub repository. Default: this project.
   POCKETWEB_TOKEN            GitHub token for a private git download. GH_TOKEN and
                              GITHUB_TOKEN are also read. Not stored in the container.
@@ -109,8 +110,30 @@ install_node() {
   info "Installed $(node -v)"
 }
 
+bundle_brand_server() {
+  [[ -f /opt/pocketweb/src/brand-server.ts ]] || die "Source is missing brand-server.ts"
+  info "Bundling the branding store"
+  (
+    cd /opt/pocketweb/src
+    node --input-type=module <<'EOF'
+import * as esbuild from 'esbuild';
+const build = esbuild.build ?? esbuild.default.build;
+await build({
+  entryPoints: ['brand-server.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: '/opt/pocketweb/brand-server.mjs',
+  logLevel: 'warning',
+});
+EOF
+  )
+  [[ -s /opt/pocketweb/brand-server.mjs ]] || die "Could not bundle the branding store"
+}
+
 install_brand_service() {
   local token node_bin
+  [[ -s /opt/pocketweb/brand-server.mjs ]] || die "Branding store bundle is missing"
   if [[ -n "${POCKETWEB_BRAND_TOKEN:-}" ]]; then
     [[ "$POCKETWEB_BRAND_TOKEN" =~ ^[A-Za-z0-9]{8,80}$ ]] \
       || die "POCKETWEB_BRAND_TOKEN must be 8 to 80 letters or numbers"
@@ -140,7 +163,7 @@ After=network.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/pocketweb/brand.env
-ExecStart=${node_bin} --experimental-strip-types /opt/pocketweb/src/brand-server.ts
+ExecStart=${node_bin} /opt/pocketweb/brand-server.mjs
 Restart=on-failure
 RestartSec=2
 
@@ -396,6 +419,7 @@ EOF
     chmod 644 /etc/nginx/ssl/pocketweb.crt
   fi
 
+  bundle_brand_server
   info "Starting the branding store"
   install_brand_service
 
@@ -416,9 +440,12 @@ EOF
   if ! curl -fsS -k --max-time 20 "${scheme}://127.0.0.1/api/latest-version" >/dev/null; then
     warn "Firmware version lookup did not respond. The page will still load."
   fi
-  curl -fsS -k --retry 5 --retry-connrefused --retry-delay 1 "${scheme}://127.0.0.1/api/brand" \
-    | grep -q '"name"' \
-    || die "Branding store did not respond"
+  if ! curl -fsS -k --retry 5 --retry-connrefused --retry-delay 1 "${scheme}://127.0.0.1/api/brand" \
+    | grep -q '"name"'; then
+    journalctl -u pocketweb-brand -n 40 --no-pager >&2 || true
+    systemctl status pocketweb-brand --no-pager >&2 || true
+    die "Branding store did not respond"
+  fi
 
   ip="$(hostname -I | awk '{ print $1 }')"
   [[ -n "$ip" ]] || die "Container has no IP address"
@@ -596,7 +623,7 @@ write_guest_installer() {
     printf '%s\n' 'set -euo pipefail'
     # shellcheck disable=SC2016 # The trap is literal text for the guest script.
     printf '%s\n' 'trap '"'"'rm -f /root/pocketweb-token; printf "error: container install failed near line %s\n" "$LINENO" >&2'"'"' ERR'
-    declare -f die info warn node_is_usable install_node render_nginx_site install_brand_service install_pocketweb
+    declare -f die info warn node_is_usable install_node render_nginx_site bundle_brand_server install_brand_service install_pocketweb
     printf '%s\n' 'install_pocketweb'
   } >"$dest"
   chmod 755 "$dest"
@@ -882,8 +909,7 @@ load_update_settings() {
     POCKETWEB_REPO="${POCKETWEB_REPO:-$POCKETWEB_REPO_DEFAULT}"
   fi
   if [[ "$POCKETWEB_SOURCE" == "git" && -z "${POCKETWEB_REF:-}" ]]; then
-    POCKETWEB_REF="$(container_env_value "$CTID" ref)"
-    POCKETWEB_REF="${POCKETWEB_REF:-main}"
+    POCKETWEB_REF="main"
   fi
   if [[ "$POCKETWEB_SOURCE" == "local" ]]; then
     apply_local_ref
