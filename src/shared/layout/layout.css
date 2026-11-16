@@ -3,8 +3,7 @@
   align-items: center;
   gap: 10px;
 }
-.header-icon-button,
-.github-link {
+.header-icon-button {
   width: 48px;
   height: 48px;
   flex: 0 0 auto;
@@ -17,19 +16,16 @@
   box-shadow: 0 3px 10px #1721330c;
   cursor: pointer;
 }
-.header-icon-button svg,
-.github-link svg {
+.header-icon-button svg {
   width: 23px;
   height: 23px;
 }
-.header-icon-button:hover,
-.github-link:hover {
+.header-icon-button:hover {
   border-color: var(--border-hover, #8abce3);
   color: var(--accent, #0878ca);
   background: var(--surface-hover, #f5faff);
 }
-.header-icon-button:focus-visible,
-.github-link:focus-visible {
+.header-icon-button:focus-visible {
   outline: 3px solid #7cc4ff;
   outline-offset: 2px;
 }
@@ -52,13 +48,11 @@
     gap: 6px;
     padding-inline: 8px;
   }
-  .original-header .github-link,
   .original-header .header-icon-button {
     width: 36px;
     height: 36px;
     border-radius: 10px;
   }
-  .original-header .github-link svg,
   .original-header .header-icon-button svg {
     width: 20px;
     height: 20px;

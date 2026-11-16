@@ -48,13 +48,7 @@ import {
 import { TestPage } from '@/features/measurements/TestPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
 import { ToolsPage } from '@/features/tools/ToolsPage';
-import {
-  ActionDock,
-  AppFooter,
-  ConnectionButton,
-  GitHubLink,
-  Toast,
-} from '@/shared/layout/AppControls';
+import { ActionDock, AppFooter, ConnectionButton, Toast } from '@/shared/layout/AppControls';
 import { useServerBrand, saveInstalledBrand } from '@/app/brandClient';
 import { BrandLockup, BrandSettingsDialog, SettingsButton } from '@/shared/layout/BrandSettings';
 import { MainNav } from '@/shared/layout/Layout';
@@ -322,7 +316,6 @@ export default function App(): ReactElement {
       <header className="original-header">
         <BrandLockup brand={brand} />
         <div className="header-actions">
-          <GitHubLink />
           <SettingsButton onClick={() => setSettingsOpen(true)} />
           {settingsOpen && (
             <BrandSettingsDialog
