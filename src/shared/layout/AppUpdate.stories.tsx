@@ -3,7 +3,7 @@ import { useState, type ComponentProps, type ReactElement } from 'react';
 import logo from '@/assets/logo.png';
 import type { TestId } from '@/app/types';
 import { PageHeader } from '@/shared/ui/UiPrimitives';
-import { ActionDock, ConnectionButton, GitHubLink } from './AppControls';
+import { ActionDock, ConnectionButton } from './AppControls';
 import { AppUpdateBanner } from './AppUpdate';
 import { MainNav, TestPanel } from './Layout';
 
@@ -43,7 +43,6 @@ const meta = {
         <header className="original-header">
           <img className="wordmark" src={logo} alt="Pocketweb for Pockethernet" />
           <div className="header-actions">
-            <GitHubLink />
             <ConnectionButton status="connected" batteryPercent={90} onClick={() => undefined} />
           </div>
         </header>

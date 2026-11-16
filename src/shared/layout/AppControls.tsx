@@ -1,26 +1,10 @@
 import { useEffect, type ReactElement } from 'react';
-import { FaGithub } from 'react-icons/fa';
 import type { PockethernetState } from '@/device/usePockethernet';
 import { defaultFooterText } from '@/app/storage';
 import { AppIcon } from './Layout';
 import { Button, StatusIndicator } from '@/shared/ui/UiPrimitives';
 
 type ConnectionStatus = PockethernetState['status'];
-
-export function GitHubLink(): ReactElement {
-  return (
-    <a
-      className="github-link"
-      href="https://github.com/jLynx/Pockethernet-Web"
-      target="_blank"
-      rel="noreferrer"
-      aria-label="View Pocketweb for Pockethernet on GitHub"
-      title="View on GitHub"
-    >
-      <FaGithub aria-hidden="true" />
-    </a>
-  );
-}
 
 export function AppFooter({ footer }: { footer: string }): ReactElement {
   const year = new Date().getFullYear();

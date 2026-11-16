@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import logo from '@/assets/logo.png';
-import { ActionDock, ConnectionButton, GitHubLink, Toast } from './AppControls';
+import { ActionDock, ConnectionButton, Toast } from './AppControls';
 import { MainNav } from './Layout';
 
 const meta = {
@@ -32,7 +32,6 @@ export const Header: Story = {
       <header className="original-header">
         <img className="wordmark" src={logo} alt="Pocketweb for Pockethernet" />
         <div className="header-actions">
-          <GitHubLink />
           <ConnectionButton {...args} />
         </div>
       </header>
