@@ -42,6 +42,7 @@ export type TestId =
   | 'ping'
   | 'extip';
 export type Units = 'meters' | 'feet';
+export type MeasurementFailures = Partial<Record<TestId, string>>;
 export type TiaStandard = '568A' | '568B';
 export type OnOff = 'on' | 'off';
 export type StateSetter<T> = Dispatch<SetStateAction<T>>;
@@ -57,6 +58,11 @@ export interface ToolSettings {
   mac: string;
 }
 
+export interface PingDefaults {
+  enabled: boolean;
+  targets: [string, string, string];
+}
+
 export interface ReportDetails {
   address: string;
   tag: string;
@@ -69,6 +75,7 @@ export interface ReportDetails {
 export interface ReportPreferences {
   logoDataUrl: string;
   logoName: string;
+  showFooterLogo: boolean;
 }
 
 export interface BrandSettings {
@@ -96,13 +103,18 @@ export interface ReportResults {
   extip: FieldsResult | null;
 }
 
+export interface ReportPhoto {
+  dataUrl: string;
+  description: string;
+}
+
 export interface SavedReport {
   id: string;
   createdAt: string;
   details: ReportDetails;
   settings: Pick<ToolSettings, 'tia' | 'units' | 'nvp'>;
   results: ReportResults;
-  photoDataUrl: string;
+  photos: ReportPhoto[];
 }
 
 export interface BlinkerSettings {

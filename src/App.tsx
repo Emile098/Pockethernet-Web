@@ -1,11 +1,5 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import {
-  blinkerCommand,
-  parseFirmwareVersionResponse,
-  tonerCommand,
-  tonerStopCommand,
-  wifiBridgeCommand,
-  wifiBridgeEthernetCommand,
   type CdpLldpResult,
   type FieldsResult,
   type Ipv6Mode,
@@ -15,9 +9,10 @@ import {
   type WiremapResult,
 } from '@/pockethernetProtocol';
 import { errorMessage } from '@/app/format';
-import { runMeasurements } from '@/app/runMeasurements';
+import { runMeasurementsWithNotifications } from '@/features/notifications/measurementNotifications';
 import {
   loadBlinkerSettings,
+  loadPingDefaults,
   loadReportDetails,
   loadReportPreferences,
   loadReports,
@@ -31,10 +26,11 @@ import {
   type BerSettings,
   type BlinkerSettings,
   type DiscoveryFailure,
-  type FirmwareCheck,
   type Ipv4UiSettings,
   type Ipv6DisplayResult,
+  type MeasurementFailures,
   type PingDisplayResult,
+  type PingDefaults,
   type ReportDetails,
   type ReportPreferences,
   type ReportResults,
@@ -52,11 +48,24 @@ import {
 import { TestPage } from '@/features/measurements/TestPage';
 import { ReportsPage } from '@/features/reports/ReportsPage';
 import { ToolsPage } from '@/features/tools/ToolsPage';
-import { ActionDock, AppFooter, ConnectionButton, Toast } from '@/shared/layout/AppControls';
+import {
+  ActionDock,
+  AppFooter,
+  ConnectionButton,
+  GitHubLink,
+  Toast,
+} from '@/shared/layout/AppControls';
 import { useServerBrand, saveInstalledBrand } from '@/app/brandClient';
 import { BrandLockup, BrandSettingsDialog, SettingsButton } from '@/shared/layout/BrandSettings';
 import { MainNav } from '@/shared/layout/Layout';
+import { AppUpdate } from '@/shared/layout/AppUpdate';
 import { usePockethernet } from '@/device/usePockethernet';
+import { useDeviceTools } from '@/features/tools/useDeviceTools';
+import { useFirmwareUpdater } from '@/features/firmware/useFirmwareUpdater';
+import { readPendingUpdate } from '@/features/firmware/updateRecovery';
+import { updateLocked, updateWorking } from '@/features/firmware/firmwareUpdateController';
+import { Button } from '@/shared/ui/UiPrimitives';
+import { initialPingTargets, updatePingTargets } from '@/app/pingDefaults';
 
 const LINK_DEPENDENT_TESTS: readonly TestId[] = [
   'cdplldp',
@@ -69,8 +78,26 @@ const LINK_DEPENDENT_TESTS: readonly TestId[] = [
 ];
 
 export default function App(): ReactElement {
-  const ble = usePockethernet();
   const [tab, setTab] = useState<Tab>('test');
+  useEffect(() => {
+    const openResults = (event: MessageEvent<unknown>): void => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        'type' in data &&
+        data.type === 'pocketweb-open-results'
+      )
+        setTab('test');
+    };
+    navigator.serviceWorker?.addEventListener('message', openResults);
+    window.addEventListener('message', openResults);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', openResults);
+      window.removeEventListener('message', openResults);
+    };
+  }, []);
   const [selected, setSelected] = useState<Set<TestId>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<TestId>>(() => new Set());
   const [wiremap, setWiremap] = useState<WiremapResult | null>(null);
@@ -101,7 +128,12 @@ export default function App(): ReactElement {
     dns: '',
   });
   const [ipv6Mode, setIpv6Mode] = useState<Ipv6Mode>('slaac');
-  const [pingTargets, setPingTargets] = useState(['', '', '']);
+  const [pingDefaults, setPingDefaults] = useState<PingDefaults>(loadPingDefaults);
+  const [pingTargets, setPingTargets] = useState(() => initialPingTargets(pingDefaults));
+  const changePingDefaults = (next: PingDefaults): void => {
+    setPingTargets((current) => updatePingTargets(current, pingDefaults, next));
+    setPingDefaults(next);
+  };
   const [toolSettings, setToolSettings] = useState<ToolSettings>(loadToolSettings);
   const [blinkerSettings, setBlinkerSettings] = useState<BlinkerSettings>(loadBlinkerSettings);
   const [tonerSettings, setTonerSettings] = useState<TonerSettings>(loadTonerSettings);
@@ -111,12 +143,38 @@ export default function App(): ReactElement {
     useState<ReportPreferences>(loadReportPreferences);
   const [reports, setReports] = useState<SavedReport[]>(loadReports);
   const [running, setRunning] = useState(false);
-  const [activeTest, setActiveTest] = useState<TestId | null>(null);
+  const [firmwareLocked, setFirmwareLocked] = useState(
+    () => !!readPendingUpdate(window.localStorage),
+  );
+  const ble = usePockethernet({ pollBattery: !running && !firmwareLocked });
   const [notice, setNotice] = useState('');
   const { brand, setBrand } = useServerBrand();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [firmwareCheck, setFirmwareCheck] = useState<FirmwareCheck | null>(null);
-  const [firmwareChecking, setFirmwareChecking] = useState(false);
+  const deviceTools = useDeviceTools({ client: ble, running, firmwareLocked, onNotice: setNotice });
+  const firmwareUpdater = useFirmwareUpdater({
+    client: ble,
+    onLockChange: setFirmwareLocked,
+    blockedReason: deviceTools.busy
+      ? 'Wait for the current device command to finish.'
+      : running
+        ? 'Wait for measurements to finish.'
+        : tonerSettings.power === 'on'
+          ? 'Turn off the cable toner first.'
+          : blinkerSettings.link !== 'off'
+            ? 'Turn off the link blinker first.'
+            : wifiSettings.enabled === 'on'
+              ? 'Turn off the WiFi bridge first.'
+              : '',
+  });
+  const deviceLocked = updateLocked(firmwareUpdater.state);
+  const [activeTest, setActiveTest] = useState<TestId | null>(null);
+  const [measurementFailures, setMeasurementFailures] = useState<MeasurementFailures>({});
+  const [pendingTests, setPendingTests] = useState<Set<TestId>>(new Set());
+  const clearError = ble.clearError;
+  const dismissNotice = useCallback(() => {
+    setNotice('');
+    clearError();
+  }, [clearError]);
 
   useEffect(() => {
     if (ble.status !== 'disconnected') return;
@@ -133,11 +191,13 @@ export default function App(): ReactElement {
     setIpv6(null);
     setExtip(null);
     setPing(null);
-    setFirmwareCheck(null);
   }, [ble.status]);
   useEffect(() => {
     localStorage.setItem('pockethernet.toolSettings', JSON.stringify(toolSettings));
   }, [toolSettings]);
+  useEffect(() => {
+    localStorage.setItem('pockethernet.pingDefaults', JSON.stringify(pingDefaults));
+  }, [pingDefaults]);
   useEffect(() => {
     localStorage.setItem('pockethernet.blinkerSettings', JSON.stringify(blinkerSettings));
   }, [blinkerSettings]);
@@ -202,6 +262,7 @@ export default function App(): ReactElement {
   };
 
   const connect = async (): Promise<void> => {
+    if (updateWorking(firmwareUpdater.state)) return;
     try {
       if (ble.status === 'connected') ble.disconnect();
       else await ble.connect();
@@ -215,97 +276,8 @@ export default function App(): ReactElement {
     }
   };
 
-  const checkFirmware = async (): Promise<void> => {
-    if (!ble.info) {
-      setNotice('Connect Pockethernet first.');
-      return;
-    }
-    setFirmwareChecking(true);
-    setFirmwareCheck(null);
-    try {
-      const response = await fetch('/api/latest-version');
-      if (!response.ok) throw new Error(`Update server returned ${response.status}`);
-      setFirmwareCheck(parseFirmwareVersionResponse(await response.text(), ble.info.espVersion));
-    } catch (error) {
-      const message = errorMessage(error);
-      setFirmwareCheck({
-        error: message.includes('Failed to fetch') ? 'Could not reach the update server' : message,
-      });
-    } finally {
-      setFirmwareChecking(false);
-    }
-  };
-
-  const applyBlinker = async (
-    settings: BlinkerSettings,
-    tonerActive: boolean,
-  ): Promise<boolean> => {
-    if (ble.status !== 'connected' || running || tonerActive) {
-      setNotice(
-        ble.status !== 'connected'
-          ? 'Connect Pockethernet first.'
-          : running
-            ? 'Main measurements running'
-            : 'Disable toner first',
-      );
-      return false;
-    }
-    try {
-      await ble.send(blinkerCommand(settings.speed, settings.duplex, settings.mdi, settings.link));
-      return true;
-    } catch (error) {
-      setNotice(`Blinker failed: ${errorMessage(error)}`);
-      return false;
-    }
-  };
-
-  const applyToner = async (settings: TonerSettings, blinkerActive: boolean): Promise<boolean> => {
-    if (ble.status !== 'connected' || running || blinkerActive) {
-      setNotice(
-        ble.status !== 'connected'
-          ? 'Connect Pockethernet first.'
-          : running
-            ? 'Main measurements running'
-            : 'Disable Blinker function first',
-      );
-      return false;
-    }
-    try {
-      await ble.send(
-        settings.power === 'on'
-          ? tonerCommand(settings.pair, settings.shield, settings.tone, settings.volume)
-          : tonerStopCommand(),
-      );
-      return true;
-    } catch (error) {
-      setNotice(`Toner failed: ${errorMessage(error)}`);
-      return false;
-    }
-  };
-
-  const applyWifi = async (settings: WifiSettings): Promise<boolean> => {
-    if (ble.status !== 'connected' || running) {
-      setNotice(
-        ble.status !== 'connected' ? 'Connect Pockethernet first.' : 'Main measurements running',
-      );
-      return false;
-    }
-    try {
-      if (settings.enabled === 'on') {
-        await ble.send(wifiBridgeEthernetCommand());
-        await ble.send(wifiBridgeCommand(true, settings.name, settings.password));
-      } else {
-        await ble.send(wifiBridgeCommand(false));
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
-      }
-      return true;
-    } catch (error) {
-      setNotice(`WiFi bridge failed: ${errorMessage(error)}`);
-      return false;
-    }
-  };
-
   const measure = async (): Promise<void> => {
+    if (deviceLocked || running || deviceTools.busy) return;
     if (ble.status !== 'connected') {
       setNotice('Connect Pockethernet first.');
       return;
@@ -314,7 +286,7 @@ export default function App(): ReactElement {
       setNotice('Select at least one supported test first.');
       return;
     }
-    await runMeasurements({
+    await runMeasurementsWithNotifications({
       ble,
       selected,
       setExpanded,
@@ -326,6 +298,8 @@ export default function App(): ReactElement {
       pingTargets,
       setRunning,
       setActiveTest,
+      setFailures: setMeasurementFailures,
+      setPendingTests,
       setNotice,
       setWiremap,
       setTdr,
@@ -348,6 +322,7 @@ export default function App(): ReactElement {
       <header className="original-header">
         <BrandLockup brand={brand} />
         <div className="header-actions">
+          <GitHubLink />
           <SettingsButton onClick={() => setSettingsOpen(true)} />
           {settingsOpen && (
             <BrandSettingsDialog
@@ -362,6 +337,8 @@ export default function App(): ReactElement {
           )}
           <ConnectionButton
             status={ble.status}
+            batteryPercent={ble.batteryPercent}
+            disabled={updateWorking(firmwareUpdater.state)}
             onClick={() => {
               void connect();
             }}
@@ -369,6 +346,17 @@ export default function App(): ReactElement {
         </div>
       </header>
       <MainNav tab={tab} onChange={setTab} />
+      <AppUpdate busy={running || deviceLocked || deviceTools.busy} />
+      {deviceLocked && tab !== 'tools' && (
+        <div className="firmware-banner" role="status">
+          <span>
+            {updateWorking(firmwareUpdater.state)
+              ? 'Firmware update in progress'
+              : 'Firmware update needs verification'}
+          </span>
+          <Button onClick={() => setTab('tools')}>View update</Button>
+        </div>
+      )}
       {tab === 'test' ? (
         <TestPage
           selected={selected}
@@ -377,6 +365,8 @@ export default function App(): ReactElement {
           onExpandedChange={setExpanded}
           running={running}
           activeTest={activeTest}
+          failures={measurementFailures}
+          pendingTests={pendingTests}
           toolSettings={toolSettings}
           wiremap={wiremap}
           tdr={tdr}
@@ -405,20 +395,21 @@ export default function App(): ReactElement {
       ) : tab === 'tools' ? (
         <ToolsPage
           deviceInfo={ble.info}
-          firmwareCheck={firmwareCheck}
-          firmwareChecking={firmwareChecking}
-          onCheckFirmware={checkFirmware}
+          firmwareUpdater={firmwareUpdater}
+          firmwareLocked={deviceLocked}
           settings={toolSettings}
           onSettingsChange={setToolSettings}
+          pingDefaults={pingDefaults}
+          onPingDefaultsChange={changePingDefaults}
           blinkerSettings={blinkerSettings}
           onBlinkerSettingsChange={setBlinkerSettings}
-          onBlinkerChange={applyBlinker}
+          onBlinkerChange={deviceTools.applyBlinker}
           tonerSettings={tonerSettings}
           onTonerSettingsChange={setTonerSettings}
-          onTonerChange={applyToner}
+          onTonerChange={deviceTools.applyToner}
           wifiSettings={wifiSettings}
           onWifiSettingsChange={setWifiSettings}
-          onWifiChange={applyWifi}
+          onWifiChange={deviceTools.applyWifi}
           reportPreferences={reportPreferences}
           onReportPreferencesChange={setReportPreferences}
           onNotice={setNotice}
@@ -440,21 +431,14 @@ export default function App(): ReactElement {
           status={ble.status}
           selectedCount={selected.size}
           running={running}
-          canMeasure={SUPPORTED_TESTS.some((id) => selected.has(id))}
+          canMeasure={!deviceLocked && SUPPORTED_TESTS.some((id) => selected.has(id))}
           onMeasure={() => {
             void measure();
           }}
         />
       )}
       <AppFooter footer={brand.footer} />
-      {(notice || ble.error) && (
-        <Toast
-          message={notice || ble.error}
-          onDismiss={() => {
-            setNotice('');
-          }}
-        />
-      )}
+      {(notice || ble.error) && <Toast message={notice || ble.error} onDismiss={dismissNotice} />}
     </div>
   );
 }

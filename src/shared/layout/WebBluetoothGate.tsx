@@ -1,6 +1,8 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { useServerBrand } from '@/app/brandClient';
+import { subscribeTheme } from '@/app/theme';
 import { BrandLockup } from './BrandSettings';
+import { ThemeSettings } from './ThemeSelector';
 
 type DeviceFamily = 'ios' | 'android' | 'desktop';
 
@@ -63,6 +65,8 @@ function SupportLink({ device }: { device: DeviceFamily }): ReactElement {
 }
 
 export function WebBluetoothGate({ children }: { children: ReactNode }): ReactElement {
+  // Follow device theme changes even when the Tools page is not mounted.
+  useEffect(() => subscribeTheme(() => undefined), []);
   const supported = window.isSecureContext && 'bluetooth' in navigator;
   const { brand } = useServerBrand();
   if (supported) return <>{children}</>;
@@ -79,6 +83,7 @@ export function WebBluetoothGate({ children }: { children: ReactNode }): ReactEl
     <main className="support-page">
       <section className="support-panel" aria-labelledby="support-title">
         <BrandLockup brand={brand} />
+        <ThemeSettings />
         <div className="support-status" aria-hidden="true">
           <span />
         </div>

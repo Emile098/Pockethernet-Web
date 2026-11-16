@@ -56,6 +56,10 @@ export function deviceInfoCommand(): Packet {
   return { type: PACKET.DEVICE_INFO, payload: new Uint8Array() };
 }
 
+export function batteryStatusCommand(): Packet {
+  return { type: PACKET.BATTERY_STATUS, payload: new Uint8Array() };
+}
+
 export function wiremapCommand(): Packet {
   const payload = new Uint8Array(8);
   const view = new DataView(payload.buffer);
@@ -66,6 +70,48 @@ export function wiremapCommand(): Packet {
 
 export function diagnosticEthernetCommand(customMac = ''): Packet {
   return ethernetCommand(9, 0, customMac);
+}
+
+export function ethernetStopCommand(): Packet {
+  return { type: PACKET.ETH_STOP, payload: new Uint8Array() };
+}
+
+/** APK protocol_pen general Ethernet setup: selected network tests share one interface. */
+export function measurementEthernetCommand(settings: {
+  customMac?: string;
+  outgoingVlanId?: number;
+  discovery: boolean;
+  collectVlans: boolean;
+  ipv4: boolean;
+  ipv4Settings: Ipv4Settings;
+  ipv6: Ipv6Mode | null;
+}): Packet {
+  const vlan = settings.outgoingVlanId ?? 0;
+  if (!Number.isInteger(vlan) || vlan < 0 || vlan > 4094)
+    throw new Error('Outgoing VLAN ID must be between 1 and 4094');
+  // Interface up + keep link; optional CDP/LLDP filters and native VLAN collection.
+  const flags = 1 | 8 | (settings.discovery ? 32 | 64 : 0) | (settings.collectVlans ? 256 : 0);
+  const command = ethernetCommand(flags, 1773, settings.customMac);
+  const view = new DataView(command.payload.buffer);
+  let ipFlags = 1; // IP stack up, even for discovery-only runs, as in the APK.
+  if (settings.ipv4 && settings.ipv4Settings.mode !== 'static') ipFlags |= 2;
+  if (settings.ipv6) {
+    ipFlags |= 8; // IPv6 link-local address.
+    if (settings.ipv6 !== 'dhcpv6') ipFlags |= 16;
+    if (settings.ipv6 !== 'slaac') ipFlags |= 32;
+  }
+  view.setUint16(2, ipFlags, true);
+  view.setUint16(8, vlan, true);
+  if (settings.ipv4 && settings.ipv4Settings.mode === 'static') {
+    for (const [offset, address] of [
+      [20, settings.ipv4Settings.ip],
+      [24, settings.ipv4Settings.netmask],
+      [28, settings.ipv4Settings.gateway],
+      [32, settings.ipv4Settings.dns],
+    ] as const)
+      view.setUint32(offset, ipv4ToUint32(address), true);
+  }
+  return command;
 }
 
 export function linkCommand(customMac = ''): Packet {
@@ -103,14 +149,17 @@ export function blinkerCommand(
   mdi: BlinkerMdi = 'auto',
   link: BlinkerLink = 'off',
 ): Packet {
-  if (link === 'off') return { type: PACKET.ETH_STOP, payload: new Uint8Array() };
+  if (link === 'off') return ethernetStopCommand();
   const speedFlags = { '10': 64, '100': 128, '1000': 256, auto: 64 | 128 | 256 }[speed];
   const duplexFlags = { half: 512, full: 1024, auto: 512 | 1024 }[duplex];
   const mdiFlags = { mdi: 4, mdix: 8, auto: 4 | 8 }[mdi];
   const payload = new Uint8Array(53);
   const view = new DataView(payload.buffer);
   view.setUint16(0, 9 + (link === 'blink' ? 16 : 0), true);
-  view.setUint32(4, 1 | speedFlags | duplexFlags | mdiFlags | 32 | 65536, true);
+  const negotiationFlag = speed === 'auto' || duplex === 'auto' ? 32 : 0;
+  view.setUint32(4, 1 | speedFlags | duplexFlags | mdiFlags | negotiationFlag | 65536, true);
+  // APK protocol_pen's manual configuration sets this timing word to 10.
+  view.setUint16(10, 10, true);
   return { type: PACKET.ETH_CONFIG, payload };
 }
 
@@ -161,7 +210,8 @@ export function wifiBridgeCommand(
   payload[36] = ssidBytes.length;
   payload[37] = passwordBytes.length;
   payload[38] = 1;
-  if (passwordBytes.length) payload[39] = 3;
+  // APK ui_item_wifi uses ESP WIFI_AUTH_WPA_WPA2_PSK (4), not WPA2-only (3).
+  payload[39] = passwordBytes.length || !enabled ? 4 : 0;
   payload.set(passwordBytes, 40);
   payload[103] = 1;
   return { type: PACKET.WIFI_CONFIG, payload };

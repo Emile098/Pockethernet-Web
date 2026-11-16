@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   PACKET,
+  batteryStatusCommand,
+  parseBatteryPercent,
   berCommand,
   berEthernetCommand,
   blinkerCommand,
@@ -39,6 +41,16 @@ import {
   vlanEthernetCommand,
   pingCommand,
 } from './pockethernetProtocol';
+
+// Original firmware F110 layout; percentage is the third byte, not the status byte.
+assert.deepEqual(batteryStatusCommand(), { type: 0xf110, payload: new Uint8Array() });
+assert.equal(parseBatteryPercent(Uint8Array.of(0xa0, 0x0f, 76, 0x24)), 76);
+assert.equal(parseBatteryPercent(Uint8Array.of(0xa0, 0x0f, 0, 0x24)), 0);
+assert.equal(parseBatteryPercent(Uint8Array.of(0xa0, 0x0f, 100, 0x24)), 100);
+assert.equal(parseBatteryPercent(new Uint8Array(4)), null);
+assert.equal(parseBatteryPercent(Uint8Array.of(0xa0, 0x0f, 255, 0x24)), null);
+assert.equal(parseBatteryPercent(Uint8Array.of(9, 0xa0, 0x0f, 76, 0x24, 9).subarray(1, 5)), 76);
+assert.throws(() => parseBatteryPercent(new Uint8Array(3)), /Invalid battery/);
 function encodeSamples(samples: number[]): Uint8Array {
   const payload = new Uint8Array(samples.length * 2);
   const view = new DataView(payload.buffer);
@@ -162,9 +174,11 @@ const blinkerOn = blinkerCommand('100', 'full', 'mdi', 'on');
 const blinkerOnView = new DataView(blinkerOn.payload.buffer);
 assert.equal(blinkerOn.type, PACKET.ETH_CONFIG);
 assert.equal(blinkerOnView.getUint16(0, true), 9);
-assert.equal(blinkerOnView.getUint32(4, true), 1 | 128 | 1024 | 4 | 32 | 65536);
+assert.equal(blinkerOnView.getUint32(4, true), 1 | 128 | 1024 | 4 | 65536);
+assert.equal(blinkerOnView.getUint16(10, true), 10);
 const blinkerBlink = blinkerCommand('auto', 'auto', 'auto', 'blink');
 assert.equal(new DataView(blinkerBlink.payload.buffer).getUint16(0, true), 25);
+assert.equal(new DataView(blinkerBlink.payload.buffer).getUint16(10, true), 10);
 assert.equal(blinkerCommand('auto', 'auto', 'auto', 'off').type, PACKET.ETH_STOP);
 const toner = tonerCommand('all', 'on', '2', 'low');
 const tonerView = new DataView(toner.payload.buffer);
@@ -190,7 +204,7 @@ assert.equal(wifiView.getUint16(0, true), 3);
 assert.equal(wifi.payload[36], 9);
 assert.equal(wifi.payload[37], 6);
 assert.equal(wifi.payload[38], 1);
-assert.equal(wifi.payload[39], 3);
+assert.equal(wifi.payload[39], 4);
 assert.deepEqual(
   Array.from(wifi.payload.slice(40, 46)),
   Array.from(new TextEncoder().encode('secret')),
@@ -225,7 +239,8 @@ assert.equal(vlanCommandView.getUint16(0, true), 265);
 assert.equal(vlanCommandView.getUint32(4, true), 1901);
 const vlanTaggingCommand = vlanEthernetCommand(200);
 assert.equal(new DataView(vlanTaggingCommand.payload.buffer).getUint16(8, true), 200);
-assert.deepEqual(parseVlanPacket(new Uint8Array([0, 0, 0xb0, 100, 0x10, 100])), [
+// F244 words follow the APK's little-endian packet reader, including priority and DEI.
+assert.deepEqual(parseVlanPacket(new Uint8Array([0, 0, 100, 0xb0, 100, 0x10])), [
   { id: 100, priority: 0, dei: true },
   { id: 100, priority: 5, dei: true },
 ]);
@@ -242,6 +257,15 @@ assert.deepEqual(
     { id: 20, priority: 0, dei: false },
   ],
 );
+assert.deepEqual(parseVlanPacket(new Uint8Array([3, 0, 3, 0, 0xfe, 0x0f])), [
+  { id: 3, priority: 0, dei: false },
+  { id: 4094, priority: 0, dei: false },
+]);
+const slicedVlanPayload = new Uint8Array([0xff, 42, 0xa0, 0xff]);
+assert.deepEqual(parseVlanPacket(slicedVlanPayload.subarray(1, 3)), [
+  { id: 42, priority: 5, dei: false },
+]);
+assert.throws(() => parseVlanPacket(new Uint8Array([3])), /16-bit tags/);
 const trafficConfig = trafficEthernetCommand();
 const trafficConfigView = new DataView(trafficConfig.payload.buffer);
 assert.equal(trafficConfig.type, PACKET.ETH_CONFIG);

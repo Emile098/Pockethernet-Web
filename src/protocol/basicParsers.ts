@@ -9,6 +9,15 @@ import type {
   VlanTag,
 } from './types';
 
+export function parseBatteryPercent(payload: Uint8Array): number | null {
+  if (payload.length !== 4) throw new Error('Invalid battery status response');
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  // F110: voltage (LE u16), AXP2101 percentage (register A4), status (register 01).
+  // The ESP32 cache is initially all zero until its first STM32 status poll.
+  if ((view.getUint16(0, true) & 0x1fff) === 0 || payload[2] > 100) return null;
+  return payload[2];
+}
+
 export function parseTrafficPacket(payload: Uint8Array): TrafficPacketResult {
   if (payload.length < 14) throw new Error('Invalid Traffic Ethernet frame');
   const source = formatMac(payload.slice(6, 12));
@@ -116,7 +125,8 @@ export function parseVlanPacket(payload: Uint8Array): VlanTag[] {
   const tags = new Set<number>();
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   for (let offset = 0; offset < payload.length; offset += 2) {
-    const tag = view.getUint16(offset, false);
+    // F244 contains native little-endian TCI words; Ethernet frame TCIs use network order.
+    const tag = view.getUint16(offset, true);
     if (tag) tags.add(tag);
   }
   return Array.from(tags)
@@ -144,10 +154,12 @@ export function parseDeviceInfo(payload: Uint8Array): DeviceInfo {
   if (payload.length < 35) throw new Error('Invalid device-information response');
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   const deviceMac = payload.slice(29, 35);
+  let carry = 3; // APK treats the complete MAC as a big-endian 48-bit integer and adds 3.
   for (let index = deviceMac.length - 1; index >= 0; index -= 1) {
-    const incremented = deviceMac[index] + 3;
+    const incremented = deviceMac[index] + carry;
     deviceMac[index] = incremented & 255;
-    if (incremented <= 255) break;
+    carry = incremented >>> 8;
+    if (carry === 0) break;
   }
   return {
     serial: view.getInt32(0, true),
@@ -166,7 +178,12 @@ export function parseFirmwareVersionResponse(
   const versionText = separator >= 0 ? response.slice(0, separator).trim() : '';
   const downloadUrl = separator >= 0 ? response.slice(separator + 1).trim() : '';
   const latestVersion = Number(versionText);
-  if (!Number.isFinite(latestVersion) || !downloadUrl.includes('http'))
+  if (
+    !/^\d+$/.test(versionText) ||
+    !Number.isSafeInteger(latestVersion) ||
+    latestVersion < 1 ||
+    !/^https?:\/\/[^\s]+$/.test(downloadUrl)
+  )
     throw new Error('Invalid response from update server');
   return {
     latestVersion,

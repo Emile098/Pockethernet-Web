@@ -1,13 +1,15 @@
 import { handleBrandRequest } from '@/brandApi';
+import { serveOtaFiles, type OtaFilesEnv } from './server/otaFiles';
 
 const LATEST_VERSION_URL = 'https://ota.pockethernet.com/latest_version';
+export { OtaFileStore } from './server/otaFiles';
 
 interface KvNamespace {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
 }
 
-interface Env {
+interface Env extends OtaFilesEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -73,6 +75,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/api/brand') return serveBrand(request, env);
+    if (url.pathname === '/api/ota-files' || url.pathname.startsWith('/f/'))
+      return serveOtaFiles(request, env);
     if (url.pathname !== '/api/latest-version') return serveLegacyAsset(request, env);
     if (request.method !== 'GET')
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } });

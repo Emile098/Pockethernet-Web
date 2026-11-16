@@ -1,10 +1,26 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
+import { FaGithub } from 'react-icons/fa';
 import type { PockethernetState } from '@/device/usePockethernet';
 import { defaultFooterText } from '@/app/storage';
 import { AppIcon } from './Layout';
 import { Button, StatusIndicator } from '@/shared/ui/UiPrimitives';
 
 type ConnectionStatus = PockethernetState['status'];
+
+export function GitHubLink(): ReactElement {
+  return (
+    <a
+      className="github-link"
+      href="https://github.com/jLynx/Pockethernet-Web"
+      target="_blank"
+      rel="noreferrer"
+      aria-label="View Pocketweb for Pockethernet on GitHub"
+      title="View on GitHub"
+    >
+      <FaGithub aria-hidden="true" />
+    </a>
+  );
+}
 
 export function AppFooter({ footer }: { footer: string }): ReactElement {
   const year = new Date().getFullYear();
@@ -31,20 +47,31 @@ export function AppFooter({ footer }: { footer: string }): ReactElement {
 
 export function ConnectionButton({
   status,
+  batteryPercent = null,
+  disabled = false,
   onClick,
 }: {
   status: ConnectionStatus;
+  batteryPercent?: number | null;
+  disabled?: boolean;
   onClick: () => void;
 }): ReactElement {
   const label =
     status === 'connecting' ? 'Connecting...' : status === 'connected' ? 'Connected' : 'Connect';
+  const hasBattery = status === 'connected' && batteryPercent !== null;
   return (
-    <Button unstyled className={`connection-button ${status}`} onClick={onClick}>
+    <Button
+      unstyled
+      className={`connection-button ${status}${hasBattery ? ' has-battery' : ''}`}
+      disabled={disabled}
+      aria-label={hasBattery ? `Connected. Battery ${batteryPercent}%. Disconnect` : label}
+      onClick={onClick}
+    >
       <span className="connection-symbol">
         <AppIcon name="device" />
       </span>
       <span className="connection-copy">
-        <small>Device</small>
+        <small>{hasBattery ? `Battery ${batteryPercent}%` : 'Device'}</small>
         <strong>{label}</strong>
       </span>
       <span className="connection-dot" />
@@ -103,6 +130,11 @@ export function Toast({
   message: string;
   onDismiss: () => void;
 }): ReactElement {
+  useEffect(() => {
+    const timer = window.setTimeout(onDismiss, 12_000);
+    return () => window.clearTimeout(timer);
+  }, [message, onDismiss]);
+
   return (
     <Button unstyled className="toast" onClick={onDismiss}>
       {message}

@@ -1,6 +1,7 @@
 import type {
   BlinkerSettings,
   BrandSettings,
+  PingDefaults,
   ReportDetails,
   ReportPreferences,
   SavedReport,
@@ -42,7 +43,11 @@ export const DEFAULT_REPORT_DETAILS: ReportDetails = {
   comment: '',
   portId: '',
 };
-export const DEFAULT_REPORT_PREFERENCES: ReportPreferences = { logoDataUrl: '', logoName: '' };
+export const DEFAULT_REPORT_PREFERENCES: ReportPreferences = {
+  logoDataUrl: '',
+  logoName: '',
+  showFooterLogo: true,
+};
 export const DEFAULT_BRAND_NAME = 'Pocketweb for Pockethernet';
 export const DEFAULT_BRAND_SETTINGS: BrandSettings = {
   name: DEFAULT_BRAND_NAME,
@@ -163,18 +168,49 @@ export function loadReportDetails(): ReportDetails {
   };
 }
 
+export function loadPingDefaults(): PingDefaults {
+  const saved = storedRecord('pockethernet.pingDefaults');
+  const targets: unknown[] = Array.isArray(saved.targets) ? saved.targets : [];
+  const target = (index: number): string =>
+    typeof targets[index] === 'string' ? targets[index].trim().slice(0, 127) : '';
+  return { enabled: saved.enabled === true, targets: [target(0), target(1), target(2)] };
+}
+
 export function loadReportPreferences(): ReportPreferences {
   const saved = storedRecord('pockethernet.reportPreferences');
   return {
     logoDataUrl: typeof saved.logoDataUrl === 'string' ? saved.logoDataUrl : '',
     logoName: typeof saved.logoName === 'string' ? saved.logoName : '',
+    showFooterLogo: saved.showFooterLogo !== false,
   };
 }
 
 export function loadReports(): SavedReport[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem('pockethernet.reports') ?? '[]');
-    return Array.isArray(saved) ? saved.filter(isSavedReport) : [];
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .map((value: unknown) => {
+        if (!isRecord(value)) return value;
+        const { photoDataUrl, photoDataUrls, photos, ...report } = value;
+        const attachments =
+          photos ??
+          photoDataUrls ??
+          (typeof photoDataUrl === 'string' ? (photoDataUrl ? [photoDataUrl] : []) : undefined);
+        return {
+          ...report,
+          photos: Array.isArray(attachments)
+            ? attachments.map((photo: unknown) =>
+                typeof photo === 'string'
+                  ? { dataUrl: photo, description: '' }
+                  : isRecord(photo)
+                    ? { ...photo, description: photo.description ?? '' }
+                    : photo,
+              )
+            : attachments,
+        };
+      })
+      .filter(isSavedReport);
   } catch {
     return [];
   }
@@ -193,7 +229,13 @@ function isSavedReport(value: unknown): value is SavedReport {
   return (
     typeof value.id === 'string' &&
     typeof value.createdAt === 'string' &&
-    typeof value.photoDataUrl === 'string' &&
+    Array.isArray(value.photos) &&
+    value.photos.every(
+      (photo: unknown) =>
+        isRecord(photo) &&
+        typeof photo.dataUrl === 'string' &&
+        typeof photo.description === 'string',
+    ) &&
     Object.keys(DEFAULT_REPORT_DETAILS).every((key) => typeof details[key] === 'string') &&
     (settings.tia === '568A' || settings.tia === '568B') &&
     (settings.units === 'meters' || settings.units === 'feet') &&

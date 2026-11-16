@@ -1,6 +1,7 @@
-import { useState, type ChangeEvent, type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import type {
   ReportDetails,
+  ReportPhoto,
   ReportPreferences,
   ReportResults,
   SavedReport,
@@ -8,7 +9,7 @@ import type {
   ToolSettings,
 } from '@/app/types';
 import { Button, EmptyState, PageHeader, TextField } from '@/shared/ui/UiPrimitives';
-import { resizeReportImage } from './images';
+import { ReportPhotos } from './ReportPhotos';
 import { createLlmExport } from './llmExport';
 import { downloadReportsPdf, previewReportPdf, shareReportPdf } from './pdf';
 
@@ -18,7 +19,6 @@ const FIELDS: readonly [keyof ReportDetails, string, string][] = [
   ['user', 'User', 'Technician or customer'],
   ['location', 'Location', 'Room or rack'],
   ['portId', 'Port ID', 'Outlet or switch port'],
-  ['comment', 'Comment', 'Report notes'],
 ];
 
 interface ReportsPageProps {
@@ -71,22 +71,13 @@ export function ReportsPage({
   toolSettings,
   onNotice,
 }: ReportsPageProps): ReactElement {
-  const [photoDataUrl, setPhotoDataUrl] = useState('');
+  const [photos, setPhotos] = useState<ReportPhoto[]>([]);
+  const [addingPhotos, setAddingPhotos] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const count = measuredCount(currentResults);
 
-  const addPhoto = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      setPhotoDataUrl(await resizeReportImage(file));
-    } catch (error) {
-      onNotice(error instanceof Error ? error.message : 'Could not read this image.');
-    }
-    event.target.value = '';
-  };
-
   const save = (): void => {
+    if (addingPhotos) return;
     if (count === 0) {
       onNotice('Run at least one measurement before saving a report.');
       return;
@@ -97,10 +88,16 @@ export function ReportsPage({
       details: { ...details },
       settings: { tia: toolSettings.tia, units: toolSettings.units, nvp: toolSettings.nvp },
       results: structuredClone(currentResults),
-      photoDataUrl,
+      photos: photos.map((photo) => ({ ...photo })),
     };
+    try {
+      localStorage.setItem('pockethernet.reports', JSON.stringify([report, ...reports]));
+    } catch {
+      onNotice('Not enough storage to save this report. Remove an image or delete an old report.');
+      return;
+    }
     onReportsChange((current) => [report, ...current]);
-    setPhotoDataUrl('');
+    setPhotos([]);
     onNotice('Measurement report saved.');
   };
 
@@ -145,7 +142,7 @@ export function ReportsPage({
                 : 'No completed measurements yet'}
             </p>
           </div>
-          <Button variant="primary" disabled={count === 0} onClick={save}>
+          <Button variant="primary" disabled={count === 0 || addingPhotos} onClick={save}>
             Save report
           </Button>
         </header>
@@ -164,25 +161,25 @@ export function ReportsPage({
               }
             />
           ))}
-        </div>
-        <div className="report-photo-row">
-          <span>Report image</span>
-          {photoDataUrl && <img src={photoDataUrl} alt="Report attachment preview" />}
-          <label className="report-file-button">
-            {photoDataUrl ? 'Replace image' : 'Add image'}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(event) => void addPhoto(event)}
+          <label className="text-field report-comment">
+            <span>Comment</span>
+            <textarea
+              value={details.comment}
+              placeholder="Explain the test and findings for your client"
+              rows={4}
+              onChange={(event) =>
+                onDetailsChange((current) => ({ ...current, comment: event.target.value }))
+              }
             />
           </label>
-          {photoDataUrl && (
-            <Button variant="ghost" onClick={() => setPhotoDataUrl('')}>
-              Remove
-            </Button>
-          )}
         </div>
+        <ReportPhotos
+          photos={photos}
+          onPhotosChange={setPhotos}
+          busy={addingPhotos}
+          onBusyChange={setAddingPhotos}
+          onNotice={onNotice}
+        />
       </section>
 
       <section className="report-library" aria-labelledby="saved-reports-title">
@@ -197,6 +194,7 @@ export function ReportsPage({
               downloadReportsPdf(
                 reports.filter((report) => selected.has(report.id)),
                 preferences.logoDataUrl,
+                preferences.showFooterLogo,
               )
             }
           >
@@ -229,6 +227,8 @@ export function ReportsPage({
                   <span>
                     {new Date(report.createdAt).toLocaleString()} · {measuredCount(report.results)}{' '}
                     tests
+                    {report.photos.length > 0 &&
+                      ` · ${report.photos.length} image${report.photos.length === 1 ? '' : 's'}`}
                   </span>
                   {(report.details.location || report.details.portId) && (
                     <small>
@@ -237,16 +237,32 @@ export function ReportsPage({
                   )}
                 </div>
                 <div className="report-actions">
-                  <Button onClick={() => previewReportPdf(report, preferences.logoDataUrl)}>
+                  <Button
+                    onClick={() =>
+                      previewReportPdf(report, preferences.logoDataUrl, preferences.showFooterLogo)
+                    }
+                  >
                     View
                   </Button>
-                  <Button onClick={() => downloadReportsPdf([report], preferences.logoDataUrl)}>
+                  <Button
+                    onClick={() =>
+                      downloadReportsPdf(
+                        [report],
+                        preferences.logoDataUrl,
+                        preferences.showFooterLogo,
+                      )
+                    }
+                  >
                     PDF
                   </Button>
                   <Button onClick={() => void copyForLlm([report])}>Copy for LLM</Button>
                   <Button
                     onClick={() =>
-                      void shareReportPdf(report, preferences.logoDataUrl)
+                      void shareReportPdf(
+                        report,
+                        preferences.logoDataUrl,
+                        preferences.showFooterLogo,
+                      )
                         .then((shared) => {
                           if (!shared)
                             onNotice(
