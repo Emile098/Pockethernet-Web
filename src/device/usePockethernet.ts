@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPacketInbox, requestPacket, type PacketWaitOptions } from './packetInbox';
 import {
   BLE,
   PACKET,
+  batteryStatusCommand,
   deviceInfoCommand,
   encodePacket,
   parseDeviceInfo,
+  parseBatteryPercent,
   type DeviceInfo,
   type Packet,
 } from '@/pockethernetProtocol';
@@ -15,33 +18,27 @@ export interface PockethernetState {
   status: ConnectionStatus;
   device: string | null;
   info: DeviceInfo | null;
+  batteryPercent: number | null;
   error: string;
 }
 
 export interface PockethernetClient extends PockethernetState {
+  clearError: () => void;
   connect: () => Promise<void>;
   disconnect: () => void;
-  request: (command: Packet, types: number | number[], timeout?: number) => Promise<Packet>;
-  send: (command: Packet) => Promise<void>;
-  waitFor: (types: number | number[], timeout?: number) => Promise<Packet>;
-  collectFor: (
-    type: number,
+  request: (
+    command: Packet,
+    types: number | number[],
     timeout?: number,
-    onPacket?: (packet: Packet) => void,
-  ) => Promise<Packet[]>;
-}
-
-interface PacketWaiter {
-  types: number[];
-  resolve: (packet: Packet) => void;
-  reject: (reason: Error) => void;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-interface PacketCollector {
-  type: number;
-  packets: Packet[];
-  onPacket?: (packet: Packet) => void;
+    options?: PacketWaitOptions,
+  ) => Promise<Packet>;
+  send: (command: Packet) => Promise<void>;
+  waitFor: (
+    types: number | number[],
+    timeout?: number,
+    options?: PacketWaitOptions,
+  ) => Promise<Packet>;
+  collectFor: (type: number, timeout?: number, options?: PacketWaitOptions) => Promise<Packet[]>;
 }
 
 interface BluetoothRefs {
@@ -49,8 +46,6 @@ interface BluetoothRefs {
   notify: BluetoothRemoteGATTCharacteristic | null;
   write: BluetoothRemoteGATTCharacteristic | null;
   chunks: number[];
-  waiters: PacketWaiter[];
-  collectors: PacketCollector[];
 }
 
 function errorMessage(error: unknown): string {
@@ -70,11 +65,12 @@ function decodeCobs(input: Uint8Array): Uint8Array {
   return output.slice(0, w);
 }
 
-export function usePockethernet(): PockethernetClient {
+export function usePockethernet({ pollBattery = true } = {}): PockethernetClient {
   const [state, setState] = useState<PockethernetState>({
     status: 'disconnected',
     device: null,
     info: null,
+    batteryPercent: null,
     error: '',
   });
   const refs = useRef<BluetoothRefs>({
@@ -82,30 +78,17 @@ export function usePockethernet(): PockethernetClient {
     notify: null,
     write: null,
     chunks: [],
-    waiters: [],
-    collectors: [],
   });
+  const inbox = useRef(createPacketInbox());
+  const writes = useRef<Promise<void>>(Promise.resolve());
   const update = useCallback(
     (patch: Partial<PockethernetState>) => setState((current) => ({ ...current, ...patch })),
     [],
   );
+  const clearError = useCallback(() => update({ error: '' }), [update]);
 
   const onPacket = useCallback((packet: Packet) => {
-    refs.current.collectors
-      .filter((item) => item.type === packet.type)
-      .forEach((item) => {
-        item.packets.push(packet);
-        item.onPacket?.(packet);
-      });
-    const waiter = refs.current.waiters.find(
-      (item) => item.types.includes(packet.type) || packet.type === PACKET.NACK,
-    );
-    if (waiter) {
-      if (waiter.timer) clearTimeout(waiter.timer);
-      refs.current.waiters = refs.current.waiters.filter((item) => item !== waiter);
-      if (packet.type === PACKET.NACK) waiter.reject(new Error('Device rejected the request'));
-      else waiter.resolve(packet);
-    }
+    inbox.current.receive(packet);
   }, []);
 
   const onNotification = useCallback(() => {
@@ -137,73 +120,61 @@ export function usePockethernet(): PockethernetClient {
     }
   }, [onPacket, update]);
 
-  const send = useCallback(async (command: Packet): Promise<void> => {
+  const send = useCallback((command: Packet): Promise<void> => {
     const characteristic = refs.current.write;
-    if (!characteristic) throw new Error('Pockethernet is not connected');
-    const frame = encodePacket(command.type, command.payload);
-    for (let offset = 0; offset < frame.length; offset += 20) {
-      const chunk = frame.slice(offset, offset + 20);
-      await characteristic.writeValueWithResponse(new Uint8Array(chunk));
-    }
+    const write = writes.current.then(async () => {
+      if (!characteristic || characteristic !== refs.current.write)
+        throw new Error('Pockethernet is not connected');
+      const frame = encodePacket(command.type, command.payload);
+      for (let offset = 0; offset < frame.length; offset += 20) {
+        const chunk = frame.slice(offset, offset + 20);
+        await characteristic.writeValueWithResponse(new Uint8Array(chunk));
+      }
+    });
+    writes.current = write.catch(() => undefined);
+    return write;
   }, []);
 
   const waitFor = useCallback(
-    (types: number | number[], timeout = 5000): Promise<Packet> =>
-      new Promise<Packet>((resolve, reject) => {
-        const waiter: PacketWaiter = {
-          types: Array.isArray(types) ? types : [types],
-          resolve,
-          reject,
-        };
-        waiter.timer = setTimeout(() => {
-          refs.current.waiters = refs.current.waiters.filter((item) => item !== waiter);
-          reject(new Error('The device did not respond in time'));
-        }, timeout);
-        refs.current.waiters.push(waiter);
-      }),
+    (types: number | number[], timeout = 5000, options?: PacketWaitOptions): Promise<Packet> =>
+      inbox.current.waitFor(types, timeout, options),
     [],
   );
 
   const collectFor = useCallback(
-    (type: number, timeout = 5000, onPacket?: (packet: Packet) => void): Promise<Packet[]> =>
-      new Promise<Packet[]>((resolve) => {
-        const collector: PacketCollector = { type, packets: [], onPacket };
-        refs.current.collectors.push(collector);
-        setTimeout(() => {
-          refs.current.collectors = refs.current.collectors.filter((item) => item !== collector);
-          resolve(collector.packets);
-        }, timeout);
-      }),
+    (type: number, timeout = 5000, options?: PacketWaitOptions): Promise<Packet[]> =>
+      inbox.current.collectFor(type, timeout, options),
     [],
   );
 
   const request = useCallback(
-    async (command: Packet, types: number | number[], timeout = 5000): Promise<Packet> => {
-      const reply = waitFor(types, timeout);
-      await send(command);
-      return reply;
-    },
-    [send, waitFor],
+    (
+      command: Packet,
+      types: number | number[],
+      timeout = 5000,
+      options?: PacketWaitOptions,
+    ): Promise<Packet> => requestPacket(inbox.current, send, command, types, timeout, options),
+    [send],
   );
 
   const disconnect = useCallback(() => {
     const { device } = refs.current;
+    inbox.current.cancel();
+    refs.current.notify?.removeEventListener('characteristicvaluechanged', onNotification);
     if (device?.gatt?.connected) device.gatt.disconnect();
     refs.current = {
       device: null,
       notify: null,
       write: null,
       chunks: [],
-      waiters: [],
-      collectors: [],
     };
-    update({ status: 'disconnected', device: null, info: null });
-  }, [update]);
+    update({ status: 'disconnected', device: null, info: null, batteryPercent: null });
+  }, [onNotification, update]);
 
   const connect = useCallback(async () => {
     if (!Reflect.has(navigator, 'bluetooth'))
       throw new Error('Web Bluetooth needs desktop Chrome or Edge and localhost/HTTPS.');
-    update({ status: 'connecting', error: '' });
+    update({ status: 'connecting', error: '', batteryPercent: null });
     try {
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [BLE.service] }],
@@ -221,18 +192,57 @@ export function usePockethernet(): PockethernetClient {
       const response = await request(deviceInfoCommand(), PACKET.DEVICE_INFO, 3500);
       update({ info: parseDeviceInfo(response.payload) });
     } catch (error) {
+      disconnect();
       update({ status: 'disconnected', error: errorMessage(error) });
       throw error;
     }
   }, [disconnect, onNotification, request, update]);
 
+  useEffect(() => {
+    if (state.status !== 'connected' || !state.info || !pollBattery) return;
+    let cancelled = false;
+    let hasBatteryReading = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const device = refs.current.device;
+    const refresh = async (): Promise<void> => {
+      if (cancelled || refs.current.device !== device) return;
+      // Leave the transport available for measurements and packet collection.
+      if (inbox.current.busy) {
+        timer = setTimeout(() => void refresh(), 5000);
+        return;
+      }
+      let percent: number | null = null;
+      let nextPollDelay = 30_000;
+      try {
+        const response = await request(batteryStatusCommand(), PACKET.BATTERY_STATUS, 3500);
+        percent = parseBatteryPercent(response.payload);
+        hasBatteryReading ||= percent !== null;
+        // F110 returns zeros until the firmware's first internal STM32 poll.
+        // Retry that startup cache promptly; keep failures on the normal interval.
+        if (!hasBatteryReading && response.payload.every((byte) => byte === 0))
+          nextPollDelay = 2000;
+      } catch {
+        // Older firmware or a missed status response must not break the connection.
+      }
+      if (cancelled || refs.current.device !== device) return;
+      update({ batteryPercent: percent });
+      timer = setTimeout(() => void refresh(), nextPollDelay);
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state.status, state.info, pollBattery, request, update]);
+
   useEffect(
     () => () => {
+      inbox.current.cancel();
       if (refs.current.device?.gatt?.connected) refs.current.device.gatt.disconnect();
     },
     [],
   );
-  return { ...state, connect, disconnect, request, send, waitFor, collectFor };
+  return { ...state, clearError, connect, disconnect, request, send, waitFor, collectFor };
 }
 
 function crc16(data: Uint8Array): number {

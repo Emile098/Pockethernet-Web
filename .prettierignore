@@ -2,6 +2,7 @@ dist/
 node_modules/
 storybook-static/
 .wrangler/
+.venv/
 package-lock.json
 proxmox/*.sh
 proxmox/brand-server.mjs

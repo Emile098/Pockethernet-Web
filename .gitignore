@@ -12,6 +12,12 @@ android-reference/
 # Saved local branding
 data/
 
+# Local firmware binaries, recovered keys, and decoding notes
+/firmware-local/
+
+# Local research and documentation
+/docs/local/
+
 # Local environment files
 .env
 .env.*
