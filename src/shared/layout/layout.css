@@ -3,32 +3,37 @@
   align-items: center;
   gap: 10px;
 }
-.header-icon-button {
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-control, #d8e0e9);
-  border-radius: 14px;
-  color: var(--text-secondary, #304056);
+.workflow-selector {
+  width: 320px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--border, #dfe6ed);
+  border-radius: 8px;
   background: var(--surface, #fff);
-  box-shadow: 0 3px 10px #1721330c;
-  cursor: pointer;
 }
-.header-icon-button svg {
-  width: 23px;
-  height: 23px;
+.workflow-selector .segmented-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
 }
-.header-icon-button:hover {
-  border-color: var(--border-hover, #8abce3);
-  color: var(--accent, #0878ca);
-  background: var(--surface-hover, #f5faff);
+.workflow-selector .segmented-control button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 0.78rem;
 }
-.header-icon-button:focus-visible {
-  outline: 3px solid #7cc4ff;
-  outline-offset: 2px;
+.workflow-selector .segmented-control button.selected {
+  color: #fff;
+  background: #0878ca;
 }
+.workflow-selector:disabled {
+  opacity: 0.6;
+}
+
 @media (max-width: 720px) {
   .original-app .original-header {
     flex-wrap: nowrap;
@@ -57,6 +62,32 @@
     width: 20px;
     height: 20px;
   }
+}
+.header-icon-button {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-control, #d8e0e9);
+  border-radius: 14px;
+  color: var(--text-secondary, #304056);
+  background: var(--surface, #fff);
+  box-shadow: 0 3px 10px #1721330c;
+  cursor: pointer;
+}
+.header-icon-button svg {
+  width: 23px;
+  height: 23px;
+}
+.header-icon-button:hover {
+  border-color: var(--border-hover, #8abce3);
+  color: var(--accent, #0878ca);
+  background: var(--surface-hover, #f5faff);
+}
+.header-icon-button:focus-visible {
+  outline: 3px solid #7cc4ff;
+  outline-offset: 2px;
 }
 .settings-backdrop {
   position: fixed;
