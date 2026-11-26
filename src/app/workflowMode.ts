@@ -1,4 +1,4 @@
-import type { WorkflowMode } from './types';
+import type { WorkflowMode } from './types.ts';
 
 export function loadWorkflowMode(): WorkflowMode {
   try {
