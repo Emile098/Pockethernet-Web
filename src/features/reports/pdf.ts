@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { brandLabel, loadBrandSettings } from '@/app/storage';
 import type { SavedReport } from '@/app/types';
 import { drawReportPage } from './reportPdfLayout';
+import { uniqueReportFilename, type ReportFile } from './reportFiles';
 
 function filename(report: SavedReport): string {
   const label = report.details.tag || report.details.address || 'measurement';
@@ -21,10 +22,44 @@ export function createReportsPdf(
     if (index > 0) doc.addPage();
     drawReportPage(doc, report, logoDataUrl, showFooterLogo);
   });
+  // Count after rendering: comments, measurements and photos can all add pages.
+  const total = doc.getNumberOfPages();
+  for (let page = 1; page <= total; page++) {
+    doc.setPage(page);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor('#777777');
+    doc.text(`Page ${page} of ${total}`, 198, 291, { align: 'right' });
+  }
   return doc;
 }
 
 export function downloadReportsPdf(
+  reports: SavedReport[],
+  logoDataUrl: string,
+  showFooterLogo = true,
+): void {
+  const used = new Set<string>();
+  for (const report of reports) {
+    createReportsPdf([report], logoDataUrl, showFooterLogo).save(
+      uniqueReportFilename(filename(report), used),
+    );
+  }
+}
+
+export function reportPdfFiles(
+  reports: SavedReport[],
+  logoDataUrl: string,
+  showFooterLogo = true,
+): ReportFile[] {
+  const used = new Set<string>();
+  return reports.map((report) => ({
+    name: uniqueReportFilename(filename(report), used),
+    blob: () => createReportsPdf([report], logoDataUrl, showFooterLogo).output('blob'),
+  }));
+}
+
+export function downloadCombinedReportsPdf(
   reports: SavedReport[],
   logoDataUrl: string,
   showFooterLogo = true,

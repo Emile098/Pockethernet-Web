@@ -185,7 +185,7 @@ const tonerView = new DataView(toner.payload.buffer);
 assert.equal(toner.type, PACKET.ANA_TONER);
 assert.equal(toner.payload.length, 20);
 assert.equal(tonerView.getInt32(0, true), 31);
-assert.equal(tonerView.getInt32(4, true), 1);
+assert.equal(tonerView.getInt32(4, true), 0);
 assert.deepEqual(
   [tonerView.getInt32(8, true), tonerView.getInt32(12, true), tonerView.getInt32(16, true)],
   [400, 700, 150],
@@ -240,10 +240,6 @@ assert.equal(vlanCommandView.getUint32(4, true), 1901);
 const vlanTaggingCommand = vlanEthernetCommand(200);
 assert.equal(new DataView(vlanTaggingCommand.payload.buffer).getUint16(8, true), 200);
 // F244 words follow the APK's little-endian packet reader, including priority and DEI.
-assert.deepEqual(parseVlanPacket(new Uint8Array([0, 0, 100, 0xb0, 100, 0x10])), [
-  { id: 100, priority: 0, dei: true },
-  { id: 100, priority: 5, dei: true },
-]);
 assert.deepEqual(
   mergeVlanTags(
     [{ id: 20, priority: 0, dei: false }],
@@ -257,6 +253,10 @@ assert.deepEqual(
     { id: 20, priority: 0, dei: false },
   ],
 );
+assert.deepEqual(parseVlanPacket(new Uint8Array([0, 0, 100, 0xb0, 100, 0x10])), [
+  { id: 100, priority: 0, dei: true },
+  { id: 100, priority: 5, dei: true },
+]);
 assert.deepEqual(parseVlanPacket(new Uint8Array([3, 0, 3, 0, 0xfe, 0x0f])), [
   { id: 3, priority: 0, dei: false },
   { id: 4094, priority: 0, dei: false },

@@ -22,7 +22,7 @@
   box-sizing: border-box;
 }
 body {
-  min-width: 320px;
+  min-width: min(320px, 100%);
   min-height: 100vh;
   margin: 0;
   background:
@@ -183,29 +183,6 @@ button:focus-visible {
   height: auto;
   display: block;
 }
-.brand-lockup {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.brand-lockup .wordmark {
-  width: min(180px, 34vw);
-}
-.brand-icon {
-  width: 42px;
-  height: 42px;
-  object-fit: contain;
-}
-.brand-name {
-  color: #172133;
-  font-size: 1.05rem;
-  line-height: 1.2;
-}
-.support-panel .wordmark,
-.support-panel .brand-lockup {
-  margin-bottom: clamp(32px, 7vw, 64px);
-}
 .connection-button {
   min-width: 150px;
   min-height: 48px;
@@ -249,7 +226,9 @@ button:focus-visible {
   font-size: 0.7rem;
 }
 .connection-button.has-battery .connection-copy small {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 3px;
   white-space: nowrap;
 }
 .connection-copy strong {
@@ -262,7 +241,8 @@ button:focus-visible {
   border-radius: 50%;
   background: #9aa6b2;
 }
-.connection-button.connecting .connection-dot {
+.connection-button.connecting .connection-dot,
+.connection-button.reconnecting .connection-dot {
   background: #f2a516;
   box-shadow: 0 0 0 4px #f2a51622;
 }

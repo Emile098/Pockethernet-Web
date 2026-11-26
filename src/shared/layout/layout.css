@@ -3,6 +3,29 @@
   align-items: center;
   gap: 10px;
 }
+.brand-lockup {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-lockup .wordmark {
+  width: min(180px, 34vw);
+}
+.brand-icon {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+.brand-name {
+  color: var(--text, #172133);
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+.support-panel .wordmark,
+.support-panel .brand-lockup {
+  margin-bottom: clamp(32px, 7vw, 64px);
+}
 .workflow-selector {
   width: 320px;
   max-width: 100%;

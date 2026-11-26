@@ -1,5 +1,6 @@
 import { handleBrandRequest } from '@/brandApi';
 import { serveOtaFiles, type OtaFilesEnv } from './server/otaFiles';
+import { serveUsbFirmware, USB_FIRMWARE_PREFIX } from './server/usbFirmware';
 
 const LATEST_VERSION_URL = 'https://ota.pockethernet.com/latest_version';
 export { OtaFileStore } from './server/otaFiles';
@@ -77,6 +78,8 @@ export default {
     if (url.pathname === '/api/brand') return serveBrand(request, env);
     if (url.pathname === '/api/ota-files' || url.pathname.startsWith('/f/'))
       return serveOtaFiles(request, env);
+    if (url.pathname.startsWith(USB_FIRMWARE_PREFIX))
+      return serveUsbFirmware(request, url.pathname);
     if (url.pathname !== '/api/latest-version') return serveLegacyAsset(request, env);
     if (request.method !== 'GET')
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } });

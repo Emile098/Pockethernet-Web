@@ -5,6 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { inflateSync } from 'node:zlib';
 import { build } from 'esbuild';
 import type { jsPDF } from 'jspdf';
+import { jsPDF as PdfDocument } from 'jspdf';
 import type { SavedReport } from '@/app/types';
 import type * as Pdf from './pdf';
 
@@ -89,7 +90,7 @@ function pageStreams(doc: jsPDF): string[] {
 }
 
 function textPages(doc: jsPDF): { text: string; x: number; y: number }[][] {
-  return pageStreams(doc).map((data) => {
+  return pageStreams(doc).map((data, pageIndex, pages) => {
     const text: { text: string; x: number; y: number }[] = [];
     for (const block of data.matchAll(/BT\n([\s\S]*?)\nET/g)) {
       const position = block[1].match(/([\d.-]+) ([\d.-]+) Td/);
@@ -106,6 +107,11 @@ function textPages(doc: jsPDF): { text: string; x: number; y: number }[][] {
         y += Number(spacing[1]) / doc.internal.scaleFactor;
       }
     }
+    const numbers = text.filter((item) => /^Page \d+ of \d+$/.test(item.text));
+    assert.equal(numbers.length, 1, 'Every page must have exactly one page number');
+    assert.equal(numbers[0].text, `Page ${pageIndex + 1} of ${pages.length}`);
+    assert.ok(Math.abs(numbers[0].y - 291) < 0.001);
+    assert.ok(numbers[0].x > 140 && numbers[0].x < 198, 'Keep numbering clear of footer branding');
     return text;
   });
 }
@@ -121,10 +127,15 @@ for (const comment of [
   const pages = textPages(doc);
   const commentText: string[] = [];
   for (const page of pages) {
-    const label = page.findIndex((item) => item.text === 'Comment: ');
+    const label = page.findIndex(
+      (item) => item.text === 'Comment' || item.text === 'Report details (continued)',
+    );
     if (label < 0) continue;
-    const wiremap = page.find((item) => item.text === 'Wiremap');
-    const notes = page.slice(label + 1).filter((item) => !wiremap || item.y < wiremap.y);
+    const wiremapIndex = page.findIndex((item) => item.text === 'Wiremap');
+    const wiremap = page[wiremapIndex];
+    const notes = page
+      .slice(label + 1, wiremapIndex >= 0 ? wiremapIndex : undefined)
+      .filter((item) => !/^Page \d+ of \d+$/.test(item.text));
     for (const item of notes) {
       assert.ok(item.y < 280, 'Comments must remain above the footer');
       assert.ok(item.x >= 12 && item.x < 198, 'Comments must stay inside the metadata box');
@@ -255,6 +266,7 @@ const sparseText = sparsePages
   .flat()
   .map((item) => item.text)
   .join(' ');
+assert.match(sparseText, /FAIL.*1 failed.*3 tests/);
 for (const absent of ['DHCPv4', 'IPv6 ND', 'DHCPv6', 'Ping', 'LLDP', 'CDP', 'TDR', 'Wiremap']) {
   assert.ok(
     !sparsePages.flat().some((item) => item.text === absent),
@@ -264,7 +276,7 @@ for (const absent of ['DHCPv4', 'IPv6 ND', 'DHCPv6', 'Ping', 'LLDP', 'CDP', 'TDR
 for (const marker of ['AS_END', 'ISP_END', 'GEO_END', 'No PoE', 'Image 1 of 1'])
   assert.ok(sparseText.includes(marker));
 for (const page of sparsePages) {
-  for (const item of page)
+  for (const item of page.filter((item) => !/^Page \d+ of \d+$/.test(item.text)))
     assert.ok(item.y <= 280 + 0.001, 'Result text must remain inside the page');
   const external = page.find((item) => item.text === 'External IP');
   const ber = page.find((item) => item.text === 'Error rate');
@@ -358,7 +370,7 @@ assert.ok(secondLine.y > firstLine.y + 3.9, 'Explicit line breaks must use separ
 described.setFont('helvetica', 'normal');
 described.setFontSize(8.5);
 for (const page of describedPages) {
-  for (const item of page) {
+  for (const item of page.filter((item) => !/^Page \d+ of \d+$/.test(item.text))) {
     assert.ok(item.y <= 280 + 0.001, 'Photo description text must remain above the footer');
     if (/^(?:Photo description line|Switch port|Patch panel A|Access point)/.test(item.text))
       assert.ok(item.x >= 12 && item.x + described.getTextWidth(item.text) <= 198 + 0.1);
@@ -382,10 +394,6 @@ pageStreams(described).forEach((data, pageIndex) => {
     );
   }
 });
-console.log(
-  'Compact report sections, long fields, multiline photo descriptions and page continuation passed.',
-);
-
 const partialRun = createReportsPdf(
   [
     {
@@ -406,3 +414,87 @@ assert.match(partialText, /Wiremap, PoE, Traffic/);
 assert.match(partialText, /The device did not respond in time/);
 assert.match(partialText, /No result recorded/);
 assert.match(partialText, /Bluetooth connection lost/);
+assert.match(partialText, /FAIL.*1 failed.*1 incomplete.*3 tests/);
+
+const incomplete = createReportsPdf(
+  [{ ...report('Interrupted run'), selectedTests: ['wiremap', 'link'], runError: 'Disconnected' }],
+  '',
+  false,
+);
+assert.ok(
+  textPages(incomplete)
+    .flat()
+    .some(({ text }) => /^INCOMPLETE.*1 incomplete.*2 tests$/.test(text)),
+);
+
+const gridReport: SavedReport = {
+  ...report('Review the test cards.'),
+  selectedTests: ['wiremap', 'ipv4', 'extip', 'tdr'],
+  results: {
+    ...report('').results,
+    ipv4: { status: 'OK', summary: 'IPv4 lease obtained', fields: { Gateway: '192.0.2.1' } },
+    extip: { status: 'OK', summary: 'External IP obtained', fields: { IPv4: '203.0.113.7' } },
+    tdr: {
+      status: 'OK',
+      summary: 'Open',
+      nvp: 68,
+      pairs: [{ status: 'Open', distance: 29, samples: [] }],
+    },
+  },
+};
+const grid = textPages(createReportsPdf([gridReport], '', false))[0];
+assert.ok(grid.some(({ text }) => /^PASS.*4 tests$/.test(text)));
+const headings = ['Wiremap', 'DHCPv4', 'External IP'].map((name) =>
+  grid.find(({ text }) => text === name),
+);
+const [wiremap, dhcp, external] = headings;
+assert.ok(wiremap && dhcp && external);
+assert.ok(wiremap.x < dhcp.x && dhcp.x < external.x);
+assert.equal(wiremap.y, dhcp.y);
+assert.equal(wiremap.y, external.y);
+assert.ok(grid.some(({ text }) => text === 'Open @ 29.0 m'));
+
+// Capture actual rendered documents at the browser download boundary.
+const downloads: { name: string; text: string }[] = [];
+const originalSave = Object.getOwnPropertyDescriptor(PdfDocument.API, 'save');
+Object.defineProperty(PdfDocument.API, 'save', {
+  configurable: true,
+  enumerable: true,
+  writable: true,
+  value: function (this: jsPDF, name: string) {
+    downloads.push({
+      name,
+      text: textPages(this)
+        .flat()
+        .map((item) => item.text)
+        .join('\n'),
+    });
+    return this;
+  },
+});
+try {
+  const first = report('First selected report');
+  const second = { ...report('Second selected report'), id: 'second' };
+  const { downloadReportsPdf, downloadCombinedReportsPdf, reportPdfFiles } = bundledModule.exports;
+  assert.ok(downloadReportsPdf && downloadCombinedReportsPdf && reportPdfFiles);
+  downloadReportsPdf([first, second], '', false);
+  assert.equal(downloads.length, 2);
+  assert.notEqual(downloads[0].name, downloads[1].name, 'Retests must have distinct filenames');
+  assert.match(downloads[0].text, /First selected report/);
+  assert.doesNotMatch(downloads[0].text, /Second selected report/);
+  assert.match(downloads[1].text, /Second selected report/);
+  assert.doesNotMatch(downloads[1].text, /First selected report/);
+  downloadCombinedReportsPdf([first, second], '', false);
+  assert.equal(downloads.length, 3);
+  assert.match(downloads[2].text, /First selected report/);
+  assert.match(downloads[2].text, /Second selected report/);
+  const individualFiles = reportPdfFiles([first, second], '', false);
+  assert.deepEqual(
+    Array.from(individualFiles, (file) => file.name),
+    downloads.slice(0, 2).map((file) => file.name),
+  );
+  assert.equal(individualFiles[0].blob().type, 'application/pdf');
+} finally {
+  if (originalSave) Object.defineProperty(PdfDocument.API, 'save', originalSave);
+  else Reflect.deleteProperty(PdfDocument.API, 'save');
+}
